@@ -1,4 +1,4 @@
 deployment:
   tasks:
-    - export DEPLOYPATH=/home2/tjzufimy/public_html/
-    - /bin/cp -R php/* $DEPLOYPATH
+    - export DEPLOYPATH=/home2/tjzufimy/public_html/ufc/
+    - /bin/cp -R php/. $DEPLOYPATH
