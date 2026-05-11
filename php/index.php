@@ -164,19 +164,19 @@ function getBetTier(float $edgePercent, int $odds): array
   }
 
   if ($edgePercent >= 12.0) {
-    return ['label' => 'T1 Elite', 'desc' => 'Lock it in.', 'class' => 'tier-elite'];
+    return ['label' => 'T1 Elite Fav', 'desc' => 'Lock it in.', 'class' => 'tier-elite'];
   }
   if ($edgePercent >= 7.0) {
-    return ['label' => 'T2 Strong', 'desc' => 'High confidence. Solid play.', 'class' => 'tier-strong'];
+    return ['label' => 'T2 Strong Fav', 'desc' => 'High confidence. Solid play.', 'class' => 'tier-strong'];
   }
   if ($edgePercent >= 3.0) {
-    return ['label' => 'T3 Volatile', 'desc' => 'Playable but proceed with caution.', 'class' => 'tier-volatile'];
+    return ['label' => 'T3 Volatile Fav', 'desc' => 'Playable but proceed with caution.', 'class' => 'tier-volatile'];
   }
   if ($edgePercent >= 0.0) {
-    return ['label' => 'T4 Fragile', 'desc' => 'Avoid unless desperate.', 'class' => 'tier-fragile'];
+    return ['label' => 'T4 Fragile Fav', 'desc' => 'Avoid unless desperate.', 'class' => 'tier-fragile'];
   }
 
-  return ['label' => 'T5 Trap', 'desc' => 'Stay away. Model says no.', 'class' => 'tier-trap'];
+  return ['label' => 'T5 Trap Fav', 'desc' => 'Stay away. Model says no.', 'class' => 'tier-trap'];
 }
 
 function loadNearestEventFights(string $csvPath): array
@@ -449,15 +449,29 @@ function savePredictionHistory(string $csvPath, array $rows): bool
 function getTierOrder(): array
 {
   return [
-    'T1 Elite',
-    'T2 Strong',
-    'T3 Volatile',
-    'T4 Fragile',
-    'T5 Trap',
+    'T1 Elite Fav',
+    'T2 Strong Fav',
+    'T3 Volatile Fav',
+    'T4 Fragile Fav',
+    'T5 Trap Fav',
     'T1 Live Dog',
     'T2 Puncher\'s',
     'T3 Dead Dog',
   ];
+}
+
+function normalizeTierName(string $tier): string
+{
+  $tier = trim($tier);
+  $legacyMap = [
+    'T1 Elite' => 'T1 Elite Fav',
+    'T2 Strong' => 'T2 Strong Fav',
+    'T3 Volatile' => 'T3 Volatile Fav',
+    'T4 Fragile' => 'T4 Fragile Fav',
+    'T5 Trap' => 'T5 Trap Fav',
+  ];
+
+  return $legacyMap[$tier] ?? $tier;
 }
 
 function formatRecordStats(array $stats): string
@@ -498,7 +512,7 @@ function buildTrackingSummary(array $historyRows): array
   foreach ($historyRows as $row) {
     $predicted = trim((string)($row['predicted_winner'] ?? $row['prediction'] ?? $row['model_pick'] ?? ''));
     $actual = trim((string)($row['actual_winner'] ?? $row['winner'] ?? ''));
-    $tier = trim((string)($row['tier'] ?? ''));
+    $tier = normalizeTierName(trim((string)($row['tier'] ?? '')));
     $eventName = trim((string)($row['event_name'] ?? 'Unknown Event'));
     $eventDate = trim((string)($row['event_date'] ?? ''));
     $confidence = parsePercentValue($row['confidence'] ?? $row['confidence_pct'] ?? 0);
