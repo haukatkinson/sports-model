@@ -1,4 +1,9 @@
 <?php
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+
+echo "UFC SYSTEM ONLINE";
+
 function tryDbConnection(): ?mysqli
 {
   mysqli_report(MYSQLI_REPORT_OFF);
