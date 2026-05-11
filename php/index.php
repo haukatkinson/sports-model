@@ -1,4 +1,14 @@
 <?php
+function getPredictionApiUrl(): string
+{
+  $configured = getenv('PREDICT_API_URL');
+  if (is_string($configured) && trim($configured) !== '') {
+    return rtrim(trim($configured), '/');
+  }
+
+  return 'http://127.0.0.1:5000/predict';
+}
+
 function tryDbConnection(): ?mysqli
 {
   mysqli_report(MYSQLI_REPORT_OFF);
@@ -32,7 +42,7 @@ function callPredictionApi(string $fighterA, string $fighterB): array
         ]
     ]);
 
-    $response = @file_get_contents('http://localhost:5000/predict', false, $context);
+    $response = @file_get_contents(getPredictionApiUrl(), false, $context);
     if ($response === false) {
         return [
             'error' => 'Prediction service unavailable',

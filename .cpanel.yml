@@ -3,5 +3,9 @@ deployment:
     - export DEPLOYPATH=/home2/tjzufimy/public_html/website_2ccc7990
     - /bin/mkdir -p $DEPLOYPATH/ufc
     - /bin/mkdir -p $DEPLOYPATH/data
+    - /bin/mkdir -p $DEPLOYPATH/api
+    - /bin/mkdir -p $DEPLOYPATH/models
     - /bin/cp -R php/. $DEPLOYPATH/ufc/
     - /bin/cp -R data/. $DEPLOYPATH/data/
+    - /bin/cp -R api/. $DEPLOYPATH/api/
+    - /bin/cp -R models/. $DEPLOYPATH/models/

@@ -5,6 +5,11 @@ from predict import predict_fight
 app = Flask(__name__)
 
 
+@app.get('/')
+def healthcheck():
+    return jsonify({'status': 'ok'})
+
+
 @app.post('/predict')
 def predict():
     payload = request.get_json(silent=True) or {}
