@@ -113,24 +113,19 @@ def parse_fighter_profile(url: str, cache: Dict[str, Dict[str, Any]]) -> Dict[st
     return profile
 
 
-def fighter_score(profile: Dict[str, Any]) -> float:
+def is_heavy_division(weight_class_name: str) -> bool:
+    lowered = (weight_class_name or "").lower()
+    return "heavyweight" in lowered
+
+
+def fighter_base_score(profile: Dict[str, Any]) -> float:
     wins = int(profile.get("wins", 0) or 0)
     losses = int(profile.get("losses", 0) or 0)
     draws = int(profile.get("draws", 0) or 0)
     total = wins + losses + draws
     win_rate = (wins / total) if total else 0.5
-
-    reach_cm = float(profile.get("reach_cm", 0.0) or 0.0)
-    reach_bonus = (reach_cm - 177.8) / 100.0 if reach_cm else 0.0
-
-    age_bonus = 0.0
-    dob = profile.get("dob")
-    if isinstance(dob, date):
-        age = (date.today() - dob).days / 365.25
-        age_bonus = -abs(age - 30.0) / 40.0
-
     experience_bonus = math.log1p(total) / 10.0
-    return (win_rate - 0.5) + reach_bonus + age_bonus + experience_bonus
+    return (win_rate - 0.5) + experience_bonus
 
 
 def fighter_age(profile: Dict[str, Any]) -> float | None:
@@ -159,9 +154,54 @@ def profile_metrics(profile: Dict[str, Any]) -> Dict[str, float]:
     }
 
 
+def matchup_score(profile_a: Dict[str, Any], profile_b: Dict[str, Any], weight_class_name: str) -> tuple[float, float]:
+    slpm_a = float(profile_a.get("slpm", 0.0) or 0.0)
+    slpm_b = float(profile_b.get("slpm", 0.0) or 0.0)
+    sapm_a = float(profile_a.get("sapm", 0.0) or 0.0)
+    sapm_b = float(profile_b.get("sapm", 0.0) or 0.0)
+    str_def_a = float(profile_a.get("str_def", 0.0) or 0.0)
+    str_def_b = float(profile_b.get("str_def", 0.0) or 0.0)
+
+    striking_edge = (
+        (slpm_a - slpm_b) * 0.9
+        + (sapm_b - sapm_a) * 0.5
+        + ((str_def_a - str_def_b) / 100.0) * 0.7
+    )
+
+    reach_diff_cm = float(profile_a.get("reach_cm", 0.0) or 0.0) - float(profile_b.get("reach_cm", 0.0) or 0.0)
+    reach_combo_bonus = (reach_diff_cm / 20.0) * max(0.0, striking_edge + 0.15)
+
+    td_avg_a = float(profile_a.get("td_avg", 0.0) or 0.0)
+    td_avg_b = float(profile_b.get("td_avg", 0.0) or 0.0)
+    sub_avg_a = float(profile_a.get("sub_avg", 0.0) or 0.0)
+    sub_avg_b = float(profile_b.get("sub_avg", 0.0) or 0.0)
+    td_def_a = float(profile_a.get("td_def", 0.0) or 0.0)
+    td_def_b = float(profile_b.get("td_def", 0.0) or 0.0)
+    grappling_edge = (
+        (td_avg_a - td_avg_b) * 0.45
+        + (sub_avg_a - sub_avg_b) * 0.55
+        + ((td_def_a - td_def_b) / 100.0) * 0.25
+    )
+
+    age_adjust = 0.0
+    age_a = fighter_age(profile_a)
+    age_b = fighter_age(profile_b)
+    if age_a is not None and age_b is not None:
+        heavier = is_heavy_division(weight_class_name)
+        age_gap = age_a - age_b
+        if age_a >= 37 and age_b <= 33 and age_gap >= 5:
+            age_adjust -= 0.22 if heavier else 0.34
+        elif age_b >= 37 and age_a <= 33 and (-age_gap) >= 5:
+            age_adjust += 0.22 if heavier else 0.34
+
+    total = (striking_edge * 0.52) + (grappling_edge * 0.33) + (reach_combo_bonus * 0.75) + age_adjust
+    return total, striking_edge
+
+
 def build_explanation(
     fighter_a: str,
     fighter_b: str,
+    weight_class_name: str,
     prob_model_a: float,
     prob_profile_a: float | None,
     prob_final_a: float,
@@ -174,6 +214,7 @@ def build_explanation(
     factors: list[tuple[float, str]] = []
     metrics_a = profile_metrics(profile_a) if profile_a else {}
     metrics_b = profile_metrics(profile_b) if profile_b else {}
+    is_heavy = is_heavy_division(weight_class_name)
 
     if metrics_a and metrics_b:
         win_rate_diff = metrics_a["win_rate"] - metrics_b["win_rate"]
@@ -182,9 +223,17 @@ def build_explanation(
             factors.append((abs(win_rate_diff), f"{stronger} has the stronger historical win rate"))
 
         reach_diff = metrics_a["reach_cm"] - metrics_b["reach_cm"]
-        if abs(reach_diff) >= 4.0:
+        strike_a = float(profile_a.get("slpm", 0.0) or 0.0)
+        strike_b = float(profile_b.get("slpm", 0.0) or 0.0)
+        str_def_a = float(profile_a.get("str_def", 0.0) or 0.0)
+        str_def_b = float(profile_b.get("str_def", 0.0) or 0.0)
+        strike_edge = (strike_a - strike_b) + ((str_def_a - str_def_b) / 100.0)
+        if abs(reach_diff) >= 6.0 and abs(strike_edge) >= 0.25:
             longer = fighter_a if reach_diff > 0 else fighter_b
-            factors.append((abs(reach_diff) / 100.0, f"{longer} has a measurable reach advantage"))
+            factors.append((abs(reach_diff) / 50.0 + abs(strike_edge) / 3.0, f"{longer}'s reach + striking edge creates stronger distance control"))
+        elif abs(reach_diff) >= 7.0:
+            longer = fighter_a if reach_diff > 0 else fighter_b
+            factors.append((abs(reach_diff) / 130.0, f"{longer} has a notable reach advantage"))
 
         exp_diff = metrics_a["total_fights"] - metrics_b["total_fights"]
         if abs(exp_diff) >= 5:
@@ -194,11 +243,13 @@ def build_explanation(
         age_a = metrics_a.get("age_years")
         age_b = metrics_b.get("age_years")
         if isinstance(age_a, float) and isinstance(age_b, float) and not math.isnan(age_a) and not math.isnan(age_b):
-            prime_a = abs(age_a - 30.0)
-            prime_b = abs(age_b - 30.0)
-            if abs(prime_a - prime_b) >= 1.5:
-                prime_side = fighter_a if prime_a < prime_b else fighter_b
-                factors.append((abs(prime_a - prime_b) / 10.0, f"{prime_side} is closer to peak-age range"))
+            older_name = fighter_a if age_a > age_b else fighter_b
+            younger_name = fighter_b if older_name == fighter_a else fighter_a
+            older_age = max(age_a, age_b)
+            younger_age = min(age_a, age_b)
+            if older_age >= 37 and younger_age <= 33 and (older_age - younger_age) >= 5:
+                weight_note = " (lighter division)" if not is_heavy else ""
+                factors.append((0.18, f"Age gap is substantial: {older_name} is in late-career range vs {younger_name}{weight_note}"))
 
     factors.append((abs(prob_final_a - 0.5), f"Model confidence leans toward {favored}"))
     if prob_profile_a is not None:
@@ -271,6 +322,7 @@ def main() -> None:
 
         fighter_a_url = str(row.get("fighterA_url", "")).strip()
         fighter_b_url = str(row.get("fighterB_url", "")).strip()
+        weight_class_name = str(row.get("weight_class_name", "")).strip()
 
         payload = {
             "fighterA": fighter_a,
@@ -284,7 +336,9 @@ def main() -> None:
 
         prob_profile_a = None
         if profile_a and profile_b:
-            score_diff = fighter_score(profile_a) - fighter_score(profile_b)
+            base_diff = fighter_base_score(profile_a) - fighter_base_score(profile_b)
+            style_diff, _ = matchup_score(profile_a, profile_b, weight_class_name)
+            score_diff = (base_diff * 0.7) + style_diff
             prob_profile_a = sigmoid(score_diff * 2.5)
             prob_a = (0.35 * prob_model_a) + (0.65 * prob_profile_a)
         else:
@@ -307,6 +361,7 @@ def main() -> None:
             "explanation": build_explanation(
                 fighter_a=fighter_a,
                 fighter_b=fighter_b,
+                weight_class_name=weight_class_name,
                 prob_model_a=prob_model_a,
                 prob_profile_a=prob_profile_a,
                 prob_final_a=prob_a,

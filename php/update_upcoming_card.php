@@ -58,6 +58,40 @@ function parseEventDate(string $text): ?string
     return null;
 }
 
+function extractWeightClassName(string $text): string
+{
+    $text = strtolower(trim($text));
+    if ($text === '') {
+        return 'Catchweight';
+    }
+
+    $aliases = [
+        "women's strawweight" => "Women's Strawweight",
+        "women's flyweight" => "Women's Flyweight",
+        "women's bantamweight" => "Women's Bantamweight",
+        "women's featherweight" => "Women's Featherweight",
+        'strawweight' => 'Strawweight',
+        'flyweight' => 'Flyweight',
+        'bantamweight' => 'Bantamweight',
+        'featherweight' => 'Featherweight',
+        'lightweight' => 'Lightweight',
+        'welterweight' => 'Welterweight',
+        'middleweight' => 'Middleweight',
+        'light heavyweight' => 'Light Heavyweight',
+        'heavyweight' => 'Heavyweight',
+        'catchweight' => 'Catchweight',
+        'openweight' => 'Openweight',
+    ];
+
+    foreach ($aliases as $needle => $label) {
+        if (strpos($text, $needle) !== false) {
+            return $label;
+        }
+    }
+
+    return 'Catchweight';
+}
+
 function getUpcomingEventLinks(): array
 {
     $xpath = loadDom(fetchHtml(UFC_UPCOMING_EVENTS_URL));
@@ -106,6 +140,8 @@ function parseUpcomingEvent(string $eventUrl): ?array
 
     $rows = [];
     foreach ($fightRows as $fightRow) {
+        $fightText = nodeText($fightRow);
+        $weightClassName = extractWeightClassName($fightText);
         $fighterNodes = $xpath->query(".//a[contains(@href, '/fighter-details/')]", $fightRow);
         $fighters = [];
         $seen = [];
@@ -133,6 +169,7 @@ function parseUpcomingEvent(string $eventUrl): ?array
         $rows[] = [
             'event_name' => $eventName,
             'event_date' => $eventDate,
+            'weight_class_name' => $weightClassName,
             'fighterA' => $fighters[0]['name'],
             'fighterB' => $fighters[1]['name'],
             'fighterA_url' => $fighters[0]['url'],
@@ -185,6 +222,7 @@ function writeCsv(array $rows, string $path): void
     $headers = [
         'event_name',
         'event_date',
+        'weight_class_name',
         'fighterA',
         'fighterB',
         'fighterA_url',
