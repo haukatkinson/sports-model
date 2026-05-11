@@ -5,10 +5,11 @@ import hashlib
 import json
 import math
 import re
+from collections import Counter
 from pathlib import Path
 from typing import Dict, Any
 from urllib.request import Request, urlopen
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / "data" / "nearest_event_fights.csv"
@@ -288,17 +289,36 @@ def apply_matchup_correction(prob_model_a: float, prob_profile_a: float | None) 
 
 def method_probabilities(winner_profile: Dict[str, Any], loser_profile: Dict[str, Any], confidence: float) -> Dict[str, float]:
     winner_slpm = float(winner_profile.get("slpm", 0.0) or 0.0)
+    loser_slpm = float(loser_profile.get("slpm", 0.0) or 0.0)
     winner_sub_avg = float(winner_profile.get("sub_avg", 0.0) or 0.0)
+    loser_sub_avg = float(loser_profile.get("sub_avg", 0.0) or 0.0)
     winner_td_avg = float(winner_profile.get("td_avg", 0.0) or 0.0)
+    loser_td_avg = float(loser_profile.get("td_avg", 0.0) or 0.0)
 
     loser_sapm = float(loser_profile.get("sapm", 0.0) or 0.0)
+    winner_sapm = float(winner_profile.get("sapm", 0.0) or 0.0)
+    winner_str_def = float(winner_profile.get("str_def", 0.0) or 0.0)
     loser_str_def = float(loser_profile.get("str_def", 0.0) or 0.0)
+    winner_td_def = float(winner_profile.get("td_def", 0.0) or 0.0)
     loser_td_def = float(loser_profile.get("td_def", 0.0) or 0.0)
 
-    ko_signal = (winner_slpm * 0.9) + (loser_sapm * 0.7) + ((100.0 - loser_str_def) / 100.0)
-    sub_signal = (winner_sub_avg * 1.25) + (winner_td_avg * 0.5) + ((100.0 - loser_td_def) / 100.0)
-    dec_signal = 1.25 + max(0.0, 0.18 - abs(confidence - 0.5)) * 5.0
-    dec_signal += max(0.0, 0.55 - max(ko_signal, sub_signal))
+    striking_edge = (
+        (winner_slpm - loser_slpm) * 0.9
+        + (loser_sapm - winner_sapm) * 0.35
+        + ((winner_str_def - loser_str_def) / 100.0) * 0.5
+    )
+    ko_signal = 0.35 + max(0.0, striking_edge) + max(0.0, (100.0 - loser_str_def) / 100.0 - 0.4)
+
+    grappling_edge = (
+        (winner_sub_avg - loser_sub_avg) * 1.05
+        + (winner_td_avg - loser_td_avg) * 0.5
+        + ((winner_td_def - loser_td_def) / 100.0) * 0.25
+    )
+    sub_signal = 0.32 + max(0.0, grappling_edge) + max(0.0, (100.0 - loser_td_def) / 100.0 - 0.45)
+
+    closeness = max(0.0, 0.62 - abs(confidence - 0.5))
+    dec_signal = 0.55 + (closeness * 2.0)
+    dec_signal += max(0.0, 0.25 - max(striking_edge, grappling_edge))
 
     logits = {
         "KO/TKO": max(0.01, ko_signal),
@@ -323,6 +343,14 @@ def build_fight_key(fighter_a: str, fighter_b: str) -> str:
     return hashlib.md5(f"{fighter_a}|{fighter_b}".encode("utf-8")).hexdigest()
 
 
+def build_feature_signature(profile_a: Dict[str, Any], profile_b: Dict[str, Any], weight_class_name: str) -> str:
+    keys = ["wins", "losses", "draws", "reach_cm", "slpm", "sapm", "td_avg", "sub_avg", "str_def", "td_def"]
+    tuple_a = tuple(float(profile_a.get(key, 0.0) or 0.0) for key in keys)
+    tuple_b = tuple(float(profile_b.get(key, 0.0) or 0.0) for key in keys)
+    payload = f"{weight_class_name}|{tuple_a}|{tuple_b}"
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
+
+
 def main() -> None:
     if not DATA_PATH.exists():
         raise FileNotFoundError(f"Missing input file: {DATA_PATH}")
@@ -336,6 +364,11 @@ def main() -> None:
 
     predictions: Dict[str, Any] = {}
     profile_cache: Dict[str, Dict[str, Any]] = {}
+    probability_values: list[float] = []
+    method_values: list[str] = []
+    feature_signatures: list[str] = []
+    missing_profile_fights = 0
+
     for row in rows:
         fighter_a = str(row.get("fighterA", "")).strip()
         fighter_b = str(row.get("fighterB", "")).strip()
@@ -356,6 +389,10 @@ def main() -> None:
         prob_model_a = calibrate_probability(prob_model_a_raw)
         profile_a = parse_fighter_profile(fighter_a_url, profile_cache)
         profile_b = parse_fighter_profile(fighter_b_url, profile_cache)
+        if not profile_a or not profile_b:
+            missing_profile_fights += 1
+
+        feature_signatures.append(build_feature_signature(profile_a or {}, profile_b or {}, weight_class_name))
 
         prob_profile_a = None
         if profile_a and profile_b:
@@ -370,11 +407,13 @@ def main() -> None:
 
         prob_a = max(0.01, min(0.99, prob_a))
         prob_b = 1.0 - prob_a
+        probability_values.append(round(prob_a, 6))
         winner = fighter_a if prob_a >= prob_b else fighter_b
         winner_profile = profile_a if winner == fighter_a else profile_b
         loser_profile = profile_b if winner == fighter_a else profile_a
         method_probs = method_probabilities(winner_profile or {}, loser_profile or {}, prob_a)
         predicted_method = max(method_probs, key=method_probs.get)
+        method_values.append(predicted_method)
 
         predictions[build_fight_key(fighter_a, fighter_b)] = {
             "winner": winner,
@@ -404,6 +443,42 @@ def main() -> None:
                 "matchup_correction": round(matchup_correction, 6),
             },
         }
+
+    total_fights = len(probability_values)
+    unique_probs = len(set(probability_values))
+    unique_feature_signatures = len(set(feature_signatures))
+
+    if total_fights >= 5 and unique_probs <= 2:
+        raise RuntimeError(
+            f"Sanity check failed: only {unique_probs} unique probabilities across {total_fights} fights."
+        )
+
+    if total_fights >= 5 and unique_feature_signatures <= 2:
+        raise RuntimeError(
+            f"Sanity check failed: feature signatures collapsed to {unique_feature_signatures} unique values."
+        )
+
+    if total_fights > 0 and missing_profile_fights == total_fights:
+        raise RuntimeError("All fighter profile fetches failed; refusing to emit constant-like fallback predictions.")
+
+    method_counts = Counter(method_values)
+    warnings: list[str] = []
+    if total_fights >= 6:
+        top_method, top_count = method_counts.most_common(1)[0]
+        if top_count / total_fights >= 0.85:
+            warnings.append(
+                f"Method concentration warning: {top_method} selected for {top_count}/{total_fights} fights."
+            )
+
+    predictions["__meta__"] = {
+        "total_fights": total_fights,
+        "unique_probabilities": unique_probs,
+        "unique_feature_signatures": unique_feature_signatures,
+        "missing_profile_fights": missing_profile_fights,
+        "method_counts": dict(method_counts),
+        "warnings": warnings,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT_PATH.write_text(json.dumps(predictions, indent=2), encoding="utf-8")

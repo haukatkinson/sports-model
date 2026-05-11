@@ -1,11 +1,11 @@
 {
   "fb6c42c4b8a9efdb362e90f1f851d8d7": {
     "winner": "Melquizael Costa",
-    "predicted_method": "KO/TKO",
+    "predicted_method": "Submission",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.973078,
-      "Submission": 0.02166,
-      "Decision": 0.005262
+      "KO/TKO": 0.255276,
+      "Submission": 0.435435,
+      "Decision": 0.309289
     },
     "probabilities": {
       "Arnold Allen": 0.282714728210799,
@@ -31,11 +31,11 @@
   },
   "3a8f0bf3077905a19bcabbf868446e55": {
     "winner": "Dooho Choi",
-    "predicted_method": "KO/TKO",
+    "predicted_method": "Decision",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.997286,
-      "Submission": 0.001531,
-      "Decision": 0.001183
+      "KO/TKO": 0.259928,
+      "Submission": 0.171212,
+      "Decision": 0.56886
     },
     "probabilities": {
       "Dooho Choi": 0.6346355897050827,
@@ -61,11 +61,11 @@
   },
   "99fdd9464e374511fbe58edc338a6c05": {
     "winner": "Juan Diaz",
-    "predicted_method": "KO/TKO",
+    "predicted_method": "Submission",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.999204,
-      "Submission": 0.000523,
-      "Decision": 0.000273
+      "KO/TKO": 0.161624,
+      "Submission": 0.468845,
+      "Decision": 0.369531
     },
     "probabilities": {
       "Malcolm Wellmaker": 0.3272302472848156,
@@ -93,9 +93,9 @@
     "winner": "Rodolfo Bellato",
     "predicted_method": "KO/TKO",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.998118,
-      "Submission": 0.000894,
-      "Decision": 0.000988
+      "KO/TKO": 0.453752,
+      "Submission": 0.227364,
+      "Decision": 0.318884
     },
     "probabilities": {
       "Modestas Bukauskas": 0.28538826523793887,
@@ -121,11 +121,11 @@
   },
   "13c15915c215de1b5920086466e1d628": {
     "winner": "Benardo Sopaj",
-    "predicted_method": "KO/TKO",
+    "predicted_method": "Decision",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.990336,
-      "Submission": 0.005425,
-      "Decision": 0.004239
+      "KO/TKO": 0.329184,
+      "Submission": 0.251796,
+      "Decision": 0.41902
     },
     "probabilities": {
       "Timmy Cuamba": 0.32965020716416704,
@@ -153,9 +153,9 @@
     "winner": "Khaos Williams",
     "predicted_method": "KO/TKO",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.995969,
-      "Submission": 0.000978,
-      "Decision": 0.003053
+      "KO/TKO": 0.492955,
+      "Submission": 0.115806,
+      "Decision": 0.391239
     },
     "probabilities": {
       "Nikolay Veretennikov": 0.3737008887557692,
@@ -181,11 +181,11 @@
   },
   "9850258e0a85ba04e07ee417ff11534d": {
     "winner": "Jeremiah Wells",
-    "predicted_method": "KO/TKO",
+    "predicted_method": "Submission",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.800834,
-      "Submission": 0.181028,
-      "Decision": 0.018138
+      "KO/TKO": 0.077961,
+      "Submission": 0.708898,
+      "Decision": 0.21314
     },
     "probabilities": {
       "Jeremiah Wells": 0.6771309434142765,
@@ -211,11 +211,11 @@
   },
   "b52d0b2e2fa50c8a7489377680de178f": {
     "winner": "Tuco Tokkos",
-    "predicted_method": "KO/TKO",
+    "predicted_method": "Submission",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.932243,
-      "Submission": 0.058709,
-      "Decision": 0.009048
+      "KO/TKO": 0.079266,
+      "Submission": 0.740862,
+      "Decision": 0.179872
     },
     "probabilities": {
       "Tuco Tokkos": 0.7752842124835139,
@@ -243,9 +243,9 @@
     "winner": "Jacqueline Cavalcanti",
     "predicted_method": "KO/TKO",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.998752,
-      "Submission": 0.0003,
-      "Decision": 0.000948
+      "KO/TKO": 0.858072,
+      "Submission": 0.041708,
+      "Decision": 0.10022
     },
     "probabilities": {
       "Ketlen Vieira": 0.20334035033549497,
@@ -271,11 +271,11 @@
   },
   "bb7d418b9a963959291cc16cfa686f12": {
     "winner": "Andre Petroski",
-    "predicted_method": "KO/TKO",
+    "predicted_method": "Submission",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.821227,
-      "Submission": 0.162033,
-      "Decision": 0.01674
+      "KO/TKO": 0.220034,
+      "Submission": 0.48945,
+      "Decision": 0.290517
     },
     "probabilities": {
       "Cody Brundage": 0.2641894507908875,
@@ -301,11 +301,11 @@
   },
   "f0a246b936ab96268084daa079325467": {
     "winner": "Polyana Viana",
-    "predicted_method": "KO/TKO",
+    "predicted_method": "Submission",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.968853,
-      "Submission": 0.020908,
-      "Decision": 0.01024
+      "KO/TKO": 0.106623,
+      "Submission": 0.480247,
+      "Decision": 0.41313
     },
     "probabilities": {
       "Alice Ardelean": 0.45723025387182814,
@@ -333,9 +333,9 @@
     "winner": "Luis Gurule",
     "predicted_method": "KO/TKO",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.998961,
-      "Submission": 0.000275,
-      "Decision": 0.000765
+      "KO/TKO": 0.465451,
+      "Submission": 0.122304,
+      "Decision": 0.412245
     },
     "probabilities": {
       "Daniel Barez": 0.37255613641245644,
@@ -363,9 +363,9 @@
     "winner": "Shauna Bannon",
     "predicted_method": "KO/TKO",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.999053,
-      "Submission": 0.000617,
-      "Decision": 0.00033
+      "KO/TKO": 0.659952,
+      "Submission": 0.158724,
+      "Decision": 0.181324
     },
     "probabilities": {
       "Shauna Bannon": 0.8934391175973815,
@@ -388,5 +388,18 @@
       "calibrated_model_prob_fighterA": 0.660612,
       "matchup_correction": 0.232827
     }
+  },
+  "__meta__": {
+    "total_fights": 13,
+    "unique_probabilities": 13,
+    "unique_feature_signatures": 13,
+    "missing_profile_fights": 0,
+    "method_counts": {
+      "Submission": 6,
+      "Decision": 2,
+      "KO/TKO": 5
+    },
+    "warnings": [],
+    "generated_at": "2026-05-11T23:09:44.033088+00:00"
   }
 }
