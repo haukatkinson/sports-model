@@ -154,10 +154,10 @@ function getBetTier(float $edgePercent, int $odds): array
   $isUnderdog = $odds > 0;
 
   if ($isUnderdog) {
-    if ($edgePercent >= 8.0) {
+    if ($edgePercent >= 12.0) {
       return ['label' => 'T1 Live Dog', 'desc' => 'Real underdog value. Worth a sprinkle.', 'class' => 'tier-live'];
     }
-    if ($edgePercent >= 3.0) {
+    if ($edgePercent >= 6.0) {
       return ['label' => 'T2 Puncher\'s', 'desc' => 'Sprinkle only if you love the price.', 'class' => 'tier-punch'];
     }
     return ['label' => 'T3 Dead Dog', 'desc' => 'Hard pass in all formats.', 'class' => 'tier-dead'];
@@ -302,6 +302,45 @@ function loadNearestEventFights(string $csvPath): array
     $insertStmt->close();
     return $ok;
   }
+
+function normalizeOddsInput($value): string
+{
+  if ($value === null || $value === '') {
+    return '';
+  }
+
+  return (string)((int)$value);
+}
+
+function loadLocalOddsCache(string $path): array
+{
+  if (!file_exists($path)) {
+    return [];
+  }
+
+  $raw = @file_get_contents($path);
+  if ($raw === false || trim($raw) === '') {
+    return [];
+  }
+
+  $decoded = json_decode($raw, true);
+  return is_array($decoded) ? $decoded : [];
+}
+
+function saveLocalOddsCache(string $path, array $cache): bool
+{
+  $dir = dirname($path);
+  if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+    return false;
+  }
+
+  $json = json_encode($cache, JSON_PRETTY_PRINT);
+  if ($json === false) {
+    return false;
+  }
+
+  return file_put_contents($path, $json, LOCK_EX) !== false;
+}
 
 function loadPredictionHistory(string $csvPath): array
 {
@@ -468,12 +507,15 @@ $csvPath = dirname(__DIR__) . '/data/nearest_event_fights.csv';
 $predictionCachePath = dirname(__DIR__) . '/data/nearest_event_predictions.json';
 $predictionCacheAltPath = __DIR__ . '/data/nearest_event_predictions.json';
 $historyPath = dirname(__DIR__) . '/data/prediction_history.csv';
+$localOddsCachePath = dirname(__DIR__) . '/data/odds_cache.json';
 $fights = loadNearestEventFights($csvPath);
 $precomputedPredictions = loadPrecomputedPredictions($predictionCachePath);
 if (!$precomputedPredictions) {
   $precomputedPredictions = loadPrecomputedPredictions($predictionCacheAltPath);
 }
 $trackingSummary = buildTrackingSummary(loadPredictionHistory($historyPath));
+$localOddsCache = loadLocalOddsCache($localOddsCachePath);
+$localOddsCacheDirty = false;
 $eventName = $fights[0]['event_name'] ?? 'Latest UFC Card';
 $eventDate = $fights[0]['event_date'] ?? null;
 $submittedOdds = $_POST['odds'] ?? [];
@@ -483,16 +525,27 @@ $submittedOdds = $_POST['odds'] ?? [];
 foreach ($fights as &$fight) {
     $fight['fight_id'] = null;
     $fightKey = buildFightKey($fight);
+    $submittedFighterAOdds = isset($submittedOdds[$fightKey]) ? normalizeOddsInput($submittedOdds[$fightKey]['fighterA'] ?? '') : null;
+    $submittedFighterBOdds = isset($submittedOdds[$fightKey]) ? normalizeOddsInput($submittedOdds[$fightKey]['fighterB'] ?? '') : null;
+
+    if ($submittedFighterAOdds !== null || $submittedFighterBOdds !== null) {
+      $localOddsCache[$fightKey] = [
+        'fighterA' => $submittedFighterAOdds ?? '',
+        'fighterB' => $submittedFighterBOdds ?? '',
+        'updated_at' => date('c'),
+      ];
+      $localOddsCacheDirty = true;
+    }
 
     if ($dbConn instanceof mysqli) {
       $fight['fight_id'] = findFightId($dbConn, $fight);
       if ($fight['fight_id']) {
-        if (isset($submittedOdds[$fightKey])) {
+        if ($submittedFighterAOdds !== null || $submittedFighterBOdds !== null) {
           $saved = saveStoredOddsForFight(
             $dbConn,
             $fight['fight_id'],
-            $submittedOdds[$fightKey]['fighterA'] ?? '',
-            $submittedOdds[$fightKey]['fighterB'] ?? ''
+            $submittedFighterAOdds ?? '',
+            $submittedFighterBOdds ?? ''
           );
           $dbStatusMessage = $saved
             ? 'Odds were saved and will auto-fill next time.'
@@ -515,8 +568,9 @@ foreach ($fights as &$fight) {
     }
     $fight['prediction'] = $prediction;
 
-    $fighterAOdds = $submittedOdds[$fightKey]['fighterA'] ?? ($fight['fighterA_saved_odds'] ?? '');
-    $fighterBOdds = $submittedOdds[$fightKey]['fighterB'] ?? ($fight['fighterB_saved_odds'] ?? '');
+    $cachedOdds = $localOddsCache[$fightKey] ?? null;
+    $fighterAOdds = $submittedFighterAOdds ?? ($fight['fighterA_saved_odds'] ?? ($cachedOdds['fighterA'] ?? ''));
+    $fighterBOdds = $submittedFighterBOdds ?? ($fight['fighterB_saved_odds'] ?? ($cachedOdds['fighterB'] ?? ''));
     $fight['fighterA_odds'] = $fighterAOdds;
     $fight['fighterB_odds'] = $fighterBOdds;
 
@@ -548,8 +602,19 @@ foreach ($fights as &$fight) {
 }
 unset($fight);
 
+if ($localOddsCacheDirty) {
+  $savedLocalOdds = saveLocalOddsCache($localOddsCachePath, $localOddsCache);
+  if (!($dbConn instanceof mysqli) && $savedLocalOdds) {
+    $dbStatusMessage = 'Database unavailable. Odds were saved in local cache and will persist on refresh.';
+  } elseif (!($dbConn instanceof mysqli) && !$savedLocalOdds) {
+    $dbStatusMessage = 'Database unavailable and local odds cache could not be written. Odds may not persist.';
+  }
+}
+
   if (!($dbConn instanceof mysqli)) {
-    $dbStatusMessage = 'Database connection unavailable. Odds will work for this page load only.';
+    if ($dbStatusMessage === null) {
+      $dbStatusMessage = 'Database unavailable. Using local odds cache for persistence.';
+    }
   } else {
     $dbConn->close();
   }
