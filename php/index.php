@@ -78,6 +78,48 @@ function callPredictionApi(string $fighterA, string $fighterB): array
     return $decoded;
   }
 
+  function normalizeFighterName(string $value): string
+  {
+    $value = strtolower(trim($value));
+    return preg_replace('/\s+/', ' ', $value) ?? $value;
+  }
+
+  function getCachedPrediction(array $cache, string $fighterA, string $fighterB): ?array
+  {
+    $directKey = md5($fighterA . '|' . $fighterB);
+    if (isset($cache[$directKey]) && is_array($cache[$directKey])) {
+      return $cache[$directKey];
+    }
+
+    $reverseKey = md5($fighterB . '|' . $fighterA);
+    if (isset($cache[$reverseKey]) && is_array($cache[$reverseKey])) {
+      return $cache[$reverseKey];
+    }
+
+    $targetA = normalizeFighterName($fighterA);
+    $targetB = normalizeFighterName($fighterB);
+
+    foreach ($cache as $entry) {
+      if (!is_array($entry) || !isset($entry['probabilities']) || !is_array($entry['probabilities'])) {
+        continue;
+      }
+
+      $names = array_keys($entry['probabilities']);
+      if (count($names) < 2) {
+        continue;
+      }
+
+      $nameA = normalizeFighterName((string)$names[0]);
+      $nameB = normalizeFighterName((string)$names[1]);
+
+      if (($nameA === $targetA && $nameB === $targetB) || ($nameA === $targetB && $nameB === $targetA)) {
+        return $entry;
+      }
+    }
+
+    return null;
+  }
+
 function americanOddsToImpliedProbability($odds): ?float
 {
   if ($odds === null || $odds === '') {
@@ -263,8 +305,12 @@ function loadNearestEventFights(string $csvPath): array
 
 $csvPath = dirname(__DIR__) . '/data/nearest_event_fights.csv';
 $predictionCachePath = dirname(__DIR__) . '/data/nearest_event_predictions.json';
+$predictionCacheAltPath = __DIR__ . '/data/nearest_event_predictions.json';
 $fights = loadNearestEventFights($csvPath);
 $precomputedPredictions = loadPrecomputedPredictions($predictionCachePath);
+if (!$precomputedPredictions) {
+  $precomputedPredictions = loadPrecomputedPredictions($predictionCacheAltPath);
+}
 $eventName = $fights[0]['event_name'] ?? 'Latest UFC Card';
 $eventDate = $fights[0]['event_date'] ?? null;
 $submittedOdds = $_POST['odds'] ?? [];
@@ -298,8 +344,9 @@ foreach ($fights as &$fight) {
       }
     }
 
-    if (isset($precomputedPredictions[$fightKey]) && is_array($precomputedPredictions[$fightKey])) {
-      $prediction = $precomputedPredictions[$fightKey];
+    $cachedPrediction = getCachedPrediction($precomputedPredictions, $fight['fighterA'], $fight['fighterB']);
+    if ($cachedPrediction !== null) {
+      $prediction = $cachedPrediction;
     } else {
       $prediction = callPredictionApi($fight['fighterA'], $fight['fighterB']);
     }

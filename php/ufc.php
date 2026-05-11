@@ -29,6 +29,48 @@ function loadPrecomputedPredictions(string $jsonPath): array
   return is_array($decoded) ? $decoded : [];
 }
 
+function normalizeFighterName(string $value): string
+{
+  $value = strtolower(trim($value));
+  return preg_replace('/\s+/', ' ', $value) ?? $value;
+}
+
+function getCachedPrediction(array $cache, string $fighterA, string $fighterB): ?array
+{
+  $directKey = buildFightKey($fighterA, $fighterB);
+  if (isset($cache[$directKey]) && is_array($cache[$directKey])) {
+    return $cache[$directKey];
+  }
+
+  $reverseKey = buildFightKey($fighterB, $fighterA);
+  if (isset($cache[$reverseKey]) && is_array($cache[$reverseKey])) {
+    return $cache[$reverseKey];
+  }
+
+  $targetA = normalizeFighterName($fighterA);
+  $targetB = normalizeFighterName($fighterB);
+
+  foreach ($cache as $entry) {
+    if (!is_array($entry) || !isset($entry['probabilities']) || !is_array($entry['probabilities'])) {
+      continue;
+    }
+
+    $names = array_keys($entry['probabilities']);
+    if (count($names) < 2) {
+      continue;
+    }
+
+    $nameA = normalizeFighterName((string)$names[0]);
+    $nameB = normalizeFighterName((string)$names[1]);
+
+    if (($nameA === $targetA && $nameB === $targetB) || ($nameA === $targetB && $nameB === $targetA)) {
+      return $entry;
+    }
+  }
+
+  return null;
+}
+
 $fighterA = $_GET['fighterA'] ?? '';
 $fighterB = $_GET['fighterB'] ?? '';
 
@@ -37,10 +79,14 @@ $error = null;
 
 if ($fighterA !== '' && $fighterB !== '') {
   $cachePath = dirname(__DIR__) . '/data/nearest_event_predictions.json';
+  $altCachePath = __DIR__ . '/data/nearest_event_predictions.json';
   $precomputed = loadPrecomputedPredictions($cachePath);
-  $fightKey = buildFightKey($fighterA, $fighterB);
-  if (isset($precomputed[$fightKey]) && is_array($precomputed[$fightKey])) {
-    $prediction = $precomputed[$fightKey];
+  if (!$precomputed) {
+    $precomputed = loadPrecomputedPredictions($altCachePath);
+  }
+  $cachedPrediction = getCachedPrediction($precomputed, $fighterA, $fighterB);
+  if ($cachedPrediction !== null) {
+    $prediction = $cachedPrediction;
   } else {
     $payload = json_encode([
         'fighterA' => $fighterA,
