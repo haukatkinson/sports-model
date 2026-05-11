@@ -271,7 +271,7 @@ def build_explanation(
 
 
 def calibrate_probability(probability: float) -> float:
-    return max(0.01, min(0.99, ((probability - 0.5) * 0.9) + 0.5))
+    return max(0.01, min(0.99, ((probability - 0.5) * 0.6) + 0.5))
 
 
 def apply_matchup_correction(prob_model_a: float, prob_profile_a: float | None) -> tuple[float, float]:
@@ -279,7 +279,9 @@ def apply_matchup_correction(prob_model_a: float, prob_profile_a: float | None) 
         return prob_model_a, 0.0
 
     raw_delta = prob_profile_a - prob_model_a
-    correction = max(-0.10, min(0.10, raw_delta * 0.4))
+    model_extremeness = min(1.0, abs(prob_model_a - 0.5) * 2.0)
+    correction_weight = 0.65 + (0.25 * model_extremeness)
+    correction = raw_delta * correction_weight
     corrected = max(0.01, min(0.99, prob_model_a + correction))
     return corrected, correction
 
