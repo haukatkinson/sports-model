@@ -243,6 +243,24 @@ def matchup_score(profile_a: Dict[str, Any], profile_b: Dict[str, Any], weight_c
         + ((td_def_a - td_def_b) / 100.0) * 0.25
     )
 
+    wrestle_pressure_a = (
+        max(0.0, td_avg_a - 1.2) * 0.55
+        + max(0.0, sub_avg_a - 0.25) * 0.75
+        + max(0.0, (55.0 - td_def_b) / 100.0) * 0.55
+    )
+    wrestle_pressure_b = (
+        max(0.0, td_avg_b - 1.2) * 0.55
+        + max(0.0, sub_avg_b - 0.25) * 0.75
+        + max(0.0, (55.0 - td_def_a) / 100.0) * 0.55
+    )
+
+    grappling_edge += (wrestle_pressure_a - wrestle_pressure_b) * 0.5
+
+    if td_avg_a > (td_avg_b + 0.9) and slpm_a < slpm_b:
+        striking_edge += 0.12
+    if td_avg_b > (td_avg_a + 0.9) and slpm_b < slpm_a:
+        striking_edge -= 0.12
+
     age_adjust = 0.0
     age_a = fighter_age(profile_a)
     age_b = fighter_age(profile_b)
@@ -288,12 +306,27 @@ def build_explanation(
         str_def_a = float(profile_a.get("str_def", 0.0) or 0.0)
         str_def_b = float(profile_b.get("str_def", 0.0) or 0.0)
         strike_edge = (strike_a - strike_b) + ((str_def_a - str_def_b) / 100.0)
+        td_avg_a = float(profile_a.get("td_avg", 0.0) or 0.0)
+        td_avg_b = float(profile_b.get("td_avg", 0.0) or 0.0)
+        sub_avg_a = float(profile_a.get("sub_avg", 0.0) or 0.0)
+        sub_avg_b = float(profile_b.get("sub_avg", 0.0) or 0.0)
+        td_def_a = float(profile_a.get("td_def", 0.0) or 0.0)
+        td_def_b = float(profile_b.get("td_def", 0.0) or 0.0)
+        grappling_signal = (
+            (td_avg_a - td_avg_b) * 0.45
+            + (sub_avg_a - sub_avg_b) * 0.55
+            + ((td_def_a - td_def_b) / 100.0) * 0.25
+        )
         if abs(reach_diff) >= 6.0 and abs(strike_edge) >= 0.25:
             longer = fighter_a if reach_diff > 0 else fighter_b
             factors.append((abs(reach_diff) / 50.0 + abs(strike_edge) / 3.0, f"{longer}'s reach + striking edge creates stronger distance control"))
         elif abs(reach_diff) >= 7.0:
             longer = fighter_a if reach_diff > 0 else fighter_b
             factors.append((abs(reach_diff) / 130.0, f"{longer} has a notable reach advantage"))
+
+        if abs(grappling_signal) >= 0.35:
+            grappler = fighter_a if grappling_signal > 0 else fighter_b
+            factors.append((abs(grappling_signal), f"{grappler} projects stronger mat control and grappling pressure"))
 
         exp_diff = metrics_a["total_fights"] - metrics_b["total_fights"]
         if abs(exp_diff) >= 5:
