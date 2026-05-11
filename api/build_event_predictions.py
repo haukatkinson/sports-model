@@ -270,7 +270,21 @@ def build_explanation(
     }
 
 
-def choose_predicted_method(winner_profile: Dict[str, Any], loser_profile: Dict[str, Any], confidence: float) -> str:
+def calibrate_probability(probability: float) -> float:
+    return max(0.01, min(0.99, ((probability - 0.5) * 0.9) + 0.5))
+
+
+def apply_matchup_correction(prob_model_a: float, prob_profile_a: float | None) -> tuple[float, float]:
+    if prob_profile_a is None:
+        return prob_model_a, 0.0
+
+    raw_delta = prob_profile_a - prob_model_a
+    correction = max(-0.10, min(0.10, raw_delta * 0.4))
+    corrected = max(0.01, min(0.99, prob_model_a + correction))
+    return corrected, correction
+
+
+def method_probabilities(winner_profile: Dict[str, Any], loser_profile: Dict[str, Any], confidence: float) -> Dict[str, float]:
     winner_slpm = float(winner_profile.get("slpm", 0.0) or 0.0)
     winner_sub_avg = float(winner_profile.get("sub_avg", 0.0) or 0.0)
     winner_td_avg = float(winner_profile.get("td_avg", 0.0) or 0.0)
@@ -281,16 +295,22 @@ def choose_predicted_method(winner_profile: Dict[str, Any], loser_profile: Dict[
 
     ko_signal = (winner_slpm * 0.9) + (loser_sapm * 0.7) + ((100.0 - loser_str_def) / 100.0)
     sub_signal = (winner_sub_avg * 1.25) + (winner_td_avg * 0.5) + ((100.0 - loser_td_def) / 100.0)
+    dec_signal = 1.25 + max(0.0, 0.18 - abs(confidence - 0.5)) * 5.0
+    dec_signal += max(0.0, 0.55 - max(ko_signal, sub_signal))
 
-    decision_signal = 1.25 + max(0.0, 0.18 - abs(confidence - 0.5)) * 5.0
-    decision_signal += max(0.0, 0.55 - max(ko_signal, sub_signal))
-
-    method_scores = {
-        "KO/TKO": ko_signal,
-        "Submission": sub_signal,
-        "Decision": decision_signal,
+    logits = {
+        "KO/TKO": max(0.01, ko_signal),
+        "Submission": max(0.01, sub_signal),
+        "Decision": max(0.01, dec_signal),
     }
-    return max(method_scores, key=method_scores.get)
+
+    max_logit = max(logits.values())
+    exp_values = {key: math.exp(value - max_logit) for key, value in logits.items()}
+    total = sum(exp_values.values())
+    if total <= 0:
+        return {"KO/TKO": 0.33, "Submission": 0.33, "Decision": 0.34}
+
+    return {key: value / total for key, value in exp_values.items()}
 
 
 def sigmoid(value: float) -> float:
@@ -330,7 +350,8 @@ def main() -> None:
         }
         winner, probabilities = predict_fight(payload)
 
-        prob_model_a = float(probabilities.get(fighter_a, 0.5))
+        prob_model_a_raw = float(probabilities.get(fighter_a, 0.5))
+        prob_model_a = calibrate_probability(prob_model_a_raw)
         profile_a = parse_fighter_profile(fighter_a_url, profile_cache)
         profile_b = parse_fighter_profile(fighter_b_url, profile_cache)
 
@@ -340,20 +361,27 @@ def main() -> None:
             style_diff, _ = matchup_score(profile_a, profile_b, weight_class_name)
             score_diff = (base_diff * 0.7) + style_diff
             prob_profile_a = sigmoid(score_diff * 2.5)
-            prob_a = (0.35 * prob_model_a) + (0.65 * prob_profile_a)
+            prob_a, matchup_correction = apply_matchup_correction(prob_model_a, prob_profile_a)
         else:
             prob_a = prob_model_a
+            matchup_correction = 0.0
 
         prob_a = max(0.01, min(0.99, prob_a))
         prob_b = 1.0 - prob_a
         winner = fighter_a if prob_a >= prob_b else fighter_b
         winner_profile = profile_a if winner == fighter_a else profile_b
         loser_profile = profile_b if winner == fighter_a else profile_a
-        predicted_method = choose_predicted_method(winner_profile or {}, loser_profile or {}, prob_a)
+        method_probs = method_probabilities(winner_profile or {}, loser_profile or {}, prob_a)
+        predicted_method = max(method_probs, key=method_probs.get)
 
         predictions[build_fight_key(fighter_a, fighter_b)] = {
             "winner": winner,
             "predicted_method": predicted_method,
+            "predicted_method_probabilities": {
+                "KO/TKO": round(method_probs.get("KO/TKO", 0.0), 6),
+                "Submission": round(method_probs.get("Submission", 0.0), 6),
+                "Decision": round(method_probs.get("Decision", 0.0), 6),
+            },
             "probabilities": {
                 fighter_a: prob_a,
                 fighter_b: prob_b,
@@ -368,6 +396,11 @@ def main() -> None:
                 profile_a=profile_a,
                 profile_b=profile_b,
             ),
+            "calibration": {
+                "raw_model_prob_fighterA": round(prob_model_a_raw, 6),
+                "calibrated_model_prob_fighterA": round(prob_model_a, 6),
+                "matchup_correction": round(matchup_correction, 6),
+            },
         }
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)

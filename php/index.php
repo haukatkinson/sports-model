@@ -579,7 +579,7 @@ foreach ($fights as &$fight) {
         $probB = (float)($prediction['probabilities'][$fight['fighterB']] ?? 0);
         $fight['fighterA_probability'] = $probA;
         $fight['fighterB_probability'] = $probB;
-        $fight['confidence'] = max($probA, $probB) * 100;
+        $fight['confidence'] = abs($probA - 0.5) * 200;
 
       $impliedA = americanOddsToImpliedProbability($fighterAOdds);
       $impliedB = americanOddsToImpliedProbability($fighterBOdds);

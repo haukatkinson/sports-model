@@ -1,30 +1,45 @@
 {
   "fb6c42c4b8a9efdb362e90f1f851d8d7": {
-    "winner": "Melquizael Costa",
+    "winner": "Arnold Allen",
     "predicted_method": "KO/TKO",
+    "predicted_method_probabilities": {
+      "KO/TKO": 0.974108,
+      "Submission": 0.011525,
+      "Decision": 0.014367
+    },
     "probabilities": {
-      "Arnold Allen": 0.3617453967227366,
-      "Melquizael Costa": 0.6382546032772634
+      "Arnold Allen": 0.6409183869578124,
+      "Melquizael Costa": 0.35908161304218755
     },
     "explanation": {
-      "summary": "Melquizael Costa is favored over Arnold Allen based on blended model and profile matchup signals.",
+      "summary": "Arnold Allen is favored over Melquizael Costa based on blended model and profile matchup signals.",
       "factors": [
         "Profile matchup signal supports the lean",
         "Baseline trained model output contributes to the pick",
         "Melquizael Costa has more pro fight experience"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.361745,
-      "model_prob_fighterA": 0.767687,
+      "blended_prob_fighterA": 0.640918,
+      "model_prob_fighterA": 0.740918,
       "profile_prob_fighterA": 0.143161
+    },
+    "calibration": {
+      "raw_model_prob_fighterA": 0.767687,
+      "calibrated_model_prob_fighterA": 0.740918,
+      "matchup_correction": -0.1
     }
   },
   "3a8f0bf3077905a19bcabbf868446e55": {
     "winner": "Dooho Choi",
     "predicted_method": "KO/TKO",
+    "predicted_method_probabilities": {
+      "KO/TKO": 0.997525,
+      "Submission": 0.001532,
+      "Decision": 0.000943
+    },
     "probabilities": {
-      "Dooho Choi": 0.6749682369704448,
-      "Daniel Santos": 0.32503176302955517
+      "Dooho Choi": 0.6945681110383907,
+      "Daniel Santos": 0.30543188896160933
     },
     "explanation": {
       "summary": "Dooho Choi is favored over Daniel Santos based on blended model and profile matchup signals.",
@@ -34,117 +49,177 @@
         "Profile matchup signal supports the lean"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.674968,
-      "model_prob_fighterA": 0.767687,
+      "blended_prob_fighterA": 0.694568,
+      "model_prob_fighterA": 0.740918,
       "profile_prob_fighterA": 0.625043
+    },
+    "calibration": {
+      "raw_model_prob_fighterA": 0.767687,
+      "calibrated_model_prob_fighterA": 0.740918,
+      "matchup_correction": -0.04635
     }
   },
   "99fdd9464e374511fbe58edc338a6c05": {
-    "winner": "Juan Diaz",
+    "winner": "Malcolm Wellmaker",
     "predicted_method": "KO/TKO",
+    "predicted_method_probabilities": {
+      "KO/TKO": 0.999249,
+      "Submission": 0.000293,
+      "Decision": 0.000458
+    },
     "probabilities": {
-      "Malcolm Wellmaker": 0.4013658877054542,
-      "Juan Diaz": 0.5986341122945458
+      "Malcolm Wellmaker": 0.6409183869578124,
+      "Juan Diaz": 0.35908161304218755
     },
     "explanation": {
-      "summary": "Juan Diaz is favored over Malcolm Wellmaker based on blended model and profile matchup signals.",
+      "summary": "Malcolm Wellmaker is favored over Juan Diaz based on blended model and profile matchup signals.",
       "factors": [
         "Profile matchup signal supports the lean",
         "Baseline trained model output contributes to the pick",
-        "Juan Diaz has more pro fight experience"
+        "Model confidence leans toward Malcolm Wellmaker"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.401366,
-      "model_prob_fighterA": 0.767687,
+      "blended_prob_fighterA": 0.640918,
+      "model_prob_fighterA": 0.740918,
       "profile_prob_fighterA": 0.204116
+    },
+    "calibration": {
+      "raw_model_prob_fighterA": 0.767687,
+      "calibrated_model_prob_fighterA": 0.740918,
+      "matchup_correction": -0.1
     }
   },
   "eb7da984026aedc5b4c056b76965f13c": {
-    "winner": "Rodolfo Bellato",
+    "winner": "Modestas Bukauskas",
     "predicted_method": "KO/TKO",
+    "predicted_method_probabilities": {
+      "KO/TKO": 0.997079,
+      "Submission": 0.000713,
+      "Decision": 0.002208
+    },
     "probabilities": {
-      "Modestas Bukauskas": 0.36412494551558866,
-      "Rodolfo Bellato": 0.6358750544844114
+      "Modestas Bukauskas": 0.6409183869578124,
+      "Rodolfo Bellato": 0.35908161304218755
     },
     "explanation": {
-      "summary": "Rodolfo Bellato is favored over Modestas Bukauskas based on blended model and profile matchup signals.",
+      "summary": "Modestas Bukauskas is favored over Rodolfo Bellato based on blended model and profile matchup signals.",
       "factors": [
         "Profile matchup signal supports the lean",
         "Baseline trained model output contributes to the pick",
         "Modestas Bukauskas has more pro fight experience"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.364125,
-      "model_prob_fighterA": 0.767687,
+      "blended_prob_fighterA": 0.640918,
+      "model_prob_fighterA": 0.740918,
       "profile_prob_fighterA": 0.146822
+    },
+    "calibration": {
+      "raw_model_prob_fighterA": 0.767687,
+      "calibrated_model_prob_fighterA": 0.740918,
+      "matchup_correction": -0.1
     }
   },
   "13c15915c215de1b5920086466e1d628": {
-    "winner": "Benardo Sopaj",
+    "winner": "Timmy Cuamba",
     "predicted_method": "KO/TKO",
+    "predicted_method_probabilities": {
+      "KO/TKO": 0.98921,
+      "Submission": 0.003947,
+      "Decision": 0.006844
+    },
     "probabilities": {
-      "Timmy Cuamba": 0.40351974327251977,
-      "Benardo Sopaj": 0.5964802567274803
+      "Timmy Cuamba": 0.6409183869578124,
+      "Benardo Sopaj": 0.35908161304218755
     },
     "explanation": {
-      "summary": "Benardo Sopaj is favored over Timmy Cuamba based on blended model and profile matchup signals.",
+      "summary": "Timmy Cuamba is favored over Benardo Sopaj based on blended model and profile matchup signals.",
       "factors": [
         "Timmy Cuamba's reach + striking edge creates stronger distance control",
         "Profile matchup signal supports the lean",
         "Baseline trained model output contributes to the pick"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.40352,
-      "model_prob_fighterA": 0.767687,
+      "blended_prob_fighterA": 0.640918,
+      "model_prob_fighterA": 0.740918,
       "profile_prob_fighterA": 0.20743
+    },
+    "calibration": {
+      "raw_model_prob_fighterA": 0.767687,
+      "calibrated_model_prob_fighterA": 0.740918,
+      "matchup_correction": -0.1
     }
   },
   "c7523bfe4c2b4f3474ff3d66f08c0273": {
-    "winner": "Khaos Williams",
+    "winner": "Nikolay Veretennikov",
     "predicted_method": "KO/TKO",
+    "predicted_method_probabilities": {
+      "KO/TKO": 0.991596,
+      "Submission": 0.003689,
+      "Decision": 0.004715
+    },
     "probabilities": {
-      "Nikolay Veretennikov": 0.44272651136345653,
-      "Khaos Williams": 0.5572734886365435
+      "Nikolay Veretennikov": 0.6409183869578124,
+      "Khaos Williams": 0.35908161304218755
     },
     "explanation": {
-      "summary": "Khaos Williams is favored over Nikolay Veretennikov based on blended model and profile matchup signals.",
+      "summary": "Nikolay Veretennikov is favored over Khaos Williams based on blended model and profile matchup signals.",
       "factors": [
         "Khaos Williams's reach + striking edge creates stronger distance control",
         "Baseline trained model output contributes to the pick",
         "Profile matchup signal supports the lean"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.442727,
-      "model_prob_fighterA": 0.767687,
+      "blended_prob_fighterA": 0.640918,
+      "model_prob_fighterA": 0.740918,
       "profile_prob_fighterA": 0.267748
+    },
+    "calibration": {
+      "raw_model_prob_fighterA": 0.767687,
+      "calibrated_model_prob_fighterA": 0.740918,
+      "matchup_correction": -0.1
     }
   },
   "9850258e0a85ba04e07ee417ff11534d": {
     "winner": "Jeremiah Wells",
     "predicted_method": "KO/TKO",
+    "predicted_method_probabilities": {
+      "KO/TKO": 0.801041,
+      "Submission": 0.181075,
+      "Decision": 0.017884
+    },
     "probabilities": {
-      "Jeremiah Wells": 0.7127907045832118,
-      "Nicolas Dalby": 0.2872092954167882
+      "Jeremiah Wells": 0.7178434757231704,
+      "Nicolas Dalby": 0.2821565242768296
     },
     "explanation": {
       "summary": "Jeremiah Wells is favored over Nicolas Dalby based on blended model and profile matchup signals.",
       "factors": [
-        "Baseline trained model output contributes to the pick",
         "Nicolas Dalby has more pro fight experience",
+        "Baseline trained model output contributes to the pick",
         "Model confidence leans toward Jeremiah Wells"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.712791,
-      "model_prob_fighterA": 0.767687,
+      "blended_prob_fighterA": 0.717843,
+      "model_prob_fighterA": 0.740918,
       "profile_prob_fighterA": 0.683231
+    },
+    "calibration": {
+      "raw_model_prob_fighterA": 0.767687,
+      "calibrated_model_prob_fighterA": 0.740918,
+      "matchup_correction": -0.023075
     }
   },
   "b52d0b2e2fa50c8a7489377680de178f": {
     "winner": "Tuco Tokkos",
     "predicted_method": "KO/TKO",
+    "predicted_method_probabilities": {
+      "KO/TKO": 0.932243,
+      "Submission": 0.058709,
+      "Decision": 0.009048
+    },
     "probabilities": {
-      "Tuco Tokkos": 0.8001508161347785,
-      "Ivan Erslan": 0.19984918386522155
+      "Tuco Tokkos": 0.7716035443702883,
+      "Ivan Erslan": 0.22839645562971167
     },
     "explanation": {
       "summary": "Tuco Tokkos is favored over Ivan Erslan based on blended model and profile matchup signals.",
@@ -154,97 +229,147 @@
         "Model confidence leans toward Tuco Tokkos"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.800151,
-      "model_prob_fighterA": 0.767687,
+      "blended_prob_fighterA": 0.771604,
+      "model_prob_fighterA": 0.740918,
       "profile_prob_fighterA": 0.817631
+    },
+    "calibration": {
+      "raw_model_prob_fighterA": 0.767687,
+      "calibrated_model_prob_fighterA": 0.740918,
+      "matchup_correction": 0.030685
     }
   },
   "9d6ce4046ed442dee0f9f58206d6627e": {
-    "winner": "Jacqueline Cavalcanti",
+    "winner": "Ketlen Vieira",
     "predicted_method": "KO/TKO",
+    "predicted_method_probabilities": {
+      "KO/TKO": 0.944729,
+      "Submission": 0.028873,
+      "Decision": 0.026398
+    },
     "probabilities": {
-      "Ketlen Vieira": 0.2910992066235418,
-      "Jacqueline Cavalcanti": 0.7089007933764582
+      "Ketlen Vieira": 0.6409183869578124,
+      "Jacqueline Cavalcanti": 0.35908161304218755
     },
     "explanation": {
-      "summary": "Jacqueline Cavalcanti is favored over Ketlen Vieira based on blended model and profile matchup signals.",
+      "summary": "Ketlen Vieira is favored over Jacqueline Cavalcanti based on blended model and profile matchup signals.",
       "factors": [
         "Profile matchup signal supports the lean",
         "Baseline trained model output contributes to the pick",
-        "Model confidence leans toward Jacqueline Cavalcanti"
+        "Ketlen Vieira has more pro fight experience"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.291099,
-      "model_prob_fighterA": 0.767687,
+      "blended_prob_fighterA": 0.640918,
+      "model_prob_fighterA": 0.740918,
       "profile_prob_fighterA": 0.034475
+    },
+    "calibration": {
+      "raw_model_prob_fighterA": 0.767687,
+      "calibrated_model_prob_fighterA": 0.740918,
+      "matchup_correction": -0.1
     }
   },
   "bb7d418b9a963959291cc16cfa686f12": {
-    "winner": "Andre Petroski",
+    "winner": "Cody Brundage",
     "predicted_method": "KO/TKO",
+    "predicted_method_probabilities": {
+      "KO/TKO": 0.898462,
+      "Submission": 0.057322,
+      "Decision": 0.044216
+    },
     "probabilities": {
-      "Cody Brundage": 0.3452572010948805,
-      "Andre Petroski": 0.6547427989051195
+      "Cody Brundage": 0.6409183869578124,
+      "Andre Petroski": 0.35908161304218755
     },
     "explanation": {
-      "summary": "Andre Petroski is favored over Cody Brundage based on blended model and profile matchup signals.",
+      "summary": "Cody Brundage is favored over Andre Petroski based on blended model and profile matchup signals.",
       "factors": [
         "Profile matchup signal supports the lean",
         "Baseline trained model output contributes to the pick",
         "Andre Petroski has the stronger historical win rate"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.345257,
-      "model_prob_fighterA": 0.767687,
+      "blended_prob_fighterA": 0.640918,
+      "model_prob_fighterA": 0.740918,
       "profile_prob_fighterA": 0.117795
+    },
+    "calibration": {
+      "raw_model_prob_fighterA": 0.767687,
+      "calibrated_model_prob_fighterA": 0.740918,
+      "matchup_correction": -0.1
     }
   },
   "f0a246b936ab96268084daa079325467": {
     "winner": "Alice Ardelean",
     "predicted_method": "KO/TKO",
+    "predicted_method_probabilities": {
+      "KO/TKO": 0.998924,
+      "Submission": 0.000459,
+      "Decision": 0.000617
+    },
     "probabilities": {
-      "Alice Ardelean": 0.5170707968219781,
-      "Polyana Viana": 0.4829292031780219
+      "Alice Ardelean": 0.6409183869578124,
+      "Polyana Viana": 0.35908161304218755
     },
     "explanation": {
       "summary": "Alice Ardelean is favored over Polyana Viana based on blended model and profile matchup signals.",
       "factors": [
         "Polyana Viana's reach + striking edge creates stronger distance control",
         "Baseline trained model output contributes to the pick",
-        "Profile matchup signal supports the lean"
+        "Model confidence leans toward Alice Ardelean"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.517071,
-      "model_prob_fighterA": 0.767687,
+      "blended_prob_fighterA": 0.640918,
+      "model_prob_fighterA": 0.740918,
       "profile_prob_fighterA": 0.382124
+    },
+    "calibration": {
+      "raw_model_prob_fighterA": 0.767687,
+      "calibrated_model_prob_fighterA": 0.740918,
+      "matchup_correction": -0.1
     }
   },
   "9a9b00c72ed90a6e22c8c423cb8860e8": {
-    "winner": "Luis Gurule",
+    "winner": "Daniel Barez",
     "predicted_method": "KO/TKO",
+    "predicted_method_probabilities": {
+      "KO/TKO": 0.988697,
+      "Submission": 0.007526,
+      "Decision": 0.003776
+    },
     "probabilities": {
-      "Daniel Barez": 0.4417076386008981,
-      "Luis Gurule": 0.5582923613991019
+      "Daniel Barez": 0.6409183869578124,
+      "Luis Gurule": 0.35908161304218755
     },
     "explanation": {
-      "summary": "Luis Gurule is favored over Daniel Barez based on blended model and profile matchup signals.",
+      "summary": "Daniel Barez is favored over Luis Gurule based on blended model and profile matchup signals.",
       "factors": [
         "Baseline trained model output contributes to the pick",
         "Profile matchup signal supports the lean",
         "Daniel Barez has more pro fight experience"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.441708,
-      "model_prob_fighterA": 0.767687,
+      "blended_prob_fighterA": 0.640918,
+      "model_prob_fighterA": 0.740918,
       "profile_prob_fighterA": 0.26618
+    },
+    "calibration": {
+      "raw_model_prob_fighterA": 0.767687,
+      "calibrated_model_prob_fighterA": 0.740918,
+      "matchup_correction": -0.1
     }
   },
   "52b5e3965aaaaaac0aaccd3a10b91991": {
     "winner": "Shauna Bannon",
     "predicted_method": "KO/TKO",
+    "predicted_method_probabilities": {
+      "KO/TKO": 0.999053,
+      "Submission": 0.000617,
+      "Decision": 0.00033
+    },
     "probabilities": {
-      "Shauna Bannon": 0.905313138174517,
-      "Nicolle Caliari": 0.09468686182548303
+      "Shauna Bannon": 0.8363188194716659,
+      "Nicolle Caliari": 0.16368118052833414
     },
     "explanation": {
       "summary": "Shauna Bannon is favored over Nicolle Caliari based on blended model and profile matchup signals.",
@@ -254,9 +379,14 @@
         "Model confidence leans toward Shauna Bannon"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.905313,
-      "model_prob_fighterA": 0.767687,
+      "blended_prob_fighterA": 0.836319,
+      "model_prob_fighterA": 0.740918,
       "profile_prob_fighterA": 0.979419
+    },
+    "calibration": {
+      "raw_model_prob_fighterA": 0.767687,
+      "calibrated_model_prob_fighterA": 0.740918,
+      "matchup_correction": 0.0954
     }
   }
 }
