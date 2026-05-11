@@ -115,6 +115,92 @@ def fighter_score(profile: Dict[str, Any]) -> float:
     return (win_rate - 0.5) + reach_bonus + age_bonus + experience_bonus
 
 
+def fighter_age(profile: Dict[str, Any]) -> float | None:
+    dob = profile.get("dob")
+    if not isinstance(dob, date):
+        return None
+    return (date.today() - dob).days / 365.25
+
+
+def profile_metrics(profile: Dict[str, Any]) -> Dict[str, float]:
+    wins = int(profile.get("wins", 0) or 0)
+    losses = int(profile.get("losses", 0) or 0)
+    draws = int(profile.get("draws", 0) or 0)
+    total = wins + losses + draws
+    win_rate = (wins / total) if total else 0.5
+    reach_cm = float(profile.get("reach_cm", 0.0) or 0.0)
+    age_years = fighter_age(profile)
+    return {
+        "wins": float(wins),
+        "losses": float(losses),
+        "draws": float(draws),
+        "total_fights": float(total),
+        "win_rate": float(win_rate),
+        "reach_cm": float(reach_cm),
+        "age_years": float(age_years) if age_years is not None else float("nan"),
+    }
+
+
+def build_explanation(
+    fighter_a: str,
+    fighter_b: str,
+    prob_model_a: float,
+    prob_profile_a: float | None,
+    prob_final_a: float,
+    profile_a: Dict[str, Any],
+    profile_b: Dict[str, Any],
+) -> Dict[str, Any]:
+    favored = fighter_a if prob_final_a >= 0.5 else fighter_b
+    underdog = fighter_b if favored == fighter_a else fighter_a
+
+    factors: list[tuple[float, str]] = []
+    metrics_a = profile_metrics(profile_a) if profile_a else {}
+    metrics_b = profile_metrics(profile_b) if profile_b else {}
+
+    if metrics_a and metrics_b:
+        win_rate_diff = metrics_a["win_rate"] - metrics_b["win_rate"]
+        if abs(win_rate_diff) >= 0.04:
+            stronger = fighter_a if win_rate_diff > 0 else fighter_b
+            factors.append((abs(win_rate_diff), f"{stronger} has the stronger historical win rate"))
+
+        reach_diff = metrics_a["reach_cm"] - metrics_b["reach_cm"]
+        if abs(reach_diff) >= 4.0:
+            longer = fighter_a if reach_diff > 0 else fighter_b
+            factors.append((abs(reach_diff) / 100.0, f"{longer} has a measurable reach advantage"))
+
+        exp_diff = metrics_a["total_fights"] - metrics_b["total_fights"]
+        if abs(exp_diff) >= 5:
+            experienced = fighter_a if exp_diff > 0 else fighter_b
+            factors.append((abs(exp_diff) / 50.0, f"{experienced} has more pro fight experience"))
+
+        age_a = metrics_a.get("age_years")
+        age_b = metrics_b.get("age_years")
+        if isinstance(age_a, float) and isinstance(age_b, float) and not math.isnan(age_a) and not math.isnan(age_b):
+            prime_a = abs(age_a - 30.0)
+            prime_b = abs(age_b - 30.0)
+            if abs(prime_a - prime_b) >= 1.5:
+                prime_side = fighter_a if prime_a < prime_b else fighter_b
+                factors.append((abs(prime_a - prime_b) / 10.0, f"{prime_side} is closer to peak-age range"))
+
+    factors.append((abs(prob_final_a - 0.5), f"Model confidence leans toward {favored}"))
+    if prob_profile_a is not None:
+        factors.append((abs(prob_profile_a - 0.5), "Profile matchup signal supports the lean"))
+    factors.append((abs(prob_model_a - 0.5), "Baseline trained model output contributes to the pick"))
+
+    factors_sorted = [item[1] for item in sorted(factors, key=lambda item: item[0], reverse=True)[:3]]
+
+    summary = f"{favored} is favored over {underdog} based on blended model and profile matchup signals."
+
+    return {
+        "summary": summary,
+        "factors": factors_sorted,
+        "source": "blended-model-profile",
+        "blended_prob_fighterA": round(prob_final_a, 6),
+        "model_prob_fighterA": round(prob_model_a, 6),
+        "profile_prob_fighterA": round(prob_profile_a, 6) if prob_profile_a is not None else None,
+    }
+
+
 def sigmoid(value: float) -> float:
     return 1.0 / (1.0 + math.exp(-value))
 
@@ -155,6 +241,7 @@ def main() -> None:
         profile_a = parse_fighter_profile(fighter_a_url, profile_cache)
         profile_b = parse_fighter_profile(fighter_b_url, profile_cache)
 
+        prob_profile_a = None
         if profile_a and profile_b:
             score_diff = fighter_score(profile_a) - fighter_score(profile_b)
             prob_profile_a = sigmoid(score_diff * 2.5)
@@ -172,6 +259,15 @@ def main() -> None:
                 fighter_a: prob_a,
                 fighter_b: prob_b,
             },
+            "explanation": build_explanation(
+                fighter_a=fighter_a,
+                fighter_b=fighter_b,
+                prob_model_a=prob_model_a,
+                prob_profile_a=prob_profile_a,
+                prob_final_a=prob_a,
+                profile_a=profile_a,
+                profile_b=profile_b,
+            ),
         }
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)

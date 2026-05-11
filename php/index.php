@@ -655,6 +655,36 @@ unset($fight);
       font-size: 13px;
     }
 
+    .explain-box {
+      margin-top: 14px;
+      background: rgba(10, 15, 30, 0.55);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+    }
+
+    .explain-title {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .explain-summary {
+      font-size: 14px;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .explain-list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
     .empty-state {
       padding: 28px;
       background: rgba(10, 15, 30, 0.65);
@@ -800,6 +830,22 @@ unset($fight);
                   <div class="bar-fill" style="width: <?= max(0, min(100, ((float)($fight['fighterB_probability'] ?? 0)) * 100)) ?>%"></div>
                 </div>
               </div>
+
+              <?php if (!isset($fight['prediction']['error']) && !empty($fight['prediction']['explanation']) && is_array($fight['prediction']['explanation'])): ?>
+                <div class="explain-box">
+                  <div class="explain-title">Model Breakdown</div>
+                  <?php if (!empty($fight['prediction']['explanation']['summary'])): ?>
+                    <div class="explain-summary"><?= htmlspecialchars((string)$fight['prediction']['explanation']['summary']) ?></div>
+                  <?php endif; ?>
+                  <?php if (!empty($fight['prediction']['explanation']['factors']) && is_array($fight['prediction']['explanation']['factors'])): ?>
+                    <ul class="explain-list">
+                      <?php foreach ($fight['prediction']['explanation']['factors'] as $factor): ?>
+                        <li><?= htmlspecialchars((string)$factor) ?></li>
+                      <?php endforeach; ?>
+                    </ul>
+                  <?php endif; ?>
+                </div>
+              <?php endif; ?>
 
               <div class="fight-meta">
                 <div>Round: <?= htmlspecialchars((string)($fight['round_num'] ?? 'N/A')) ?></div>
