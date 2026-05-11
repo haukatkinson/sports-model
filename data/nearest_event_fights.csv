@@ -1,14 +1,14 @@
-event_name,event_date,fighterA,fighterB,winner,method,round_num,time_in_round,fighterA_sig_strikes_landed,fighterA_sig_strikes_attempted,fighterA_takedowns_landed,fighterA_takedowns_attempted,fighterA_submission_attempts,fighterA_knockdowns,fighterA_control_time_seconds,fighterB_sig_strikes_landed,fighterB_sig_strikes_attempted,fighterB_takedowns_landed,fighterB_takedowns_attempted,fighterB_submission_attempts,fighterB_knockdowns,fighterB_control_time_seconds
-UFC Fight Night: Allen vs. Costa,2026-05-16,Arnold Allen,Melquizael Costa,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-UFC Fight Night: Allen vs. Costa,2026-05-16,Dooho Choi,Daniel Santos,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-UFC Fight Night: Allen vs. Costa,2026-05-16,Malcolm Wellmaker,Juan Diaz,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-UFC Fight Night: Allen vs. Costa,2026-05-16,Modestas Bukauskas,Rodolfo Bellato,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-UFC Fight Night: Allen vs. Costa,2026-05-16,Timmy Cuamba,Benardo Sopaj,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-UFC Fight Night: Allen vs. Costa,2026-05-16,Nikolay Veretennikov,Khaos Williams,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-UFC Fight Night: Allen vs. Costa,2026-05-16,Jeremiah Wells,Nicolas Dalby,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-UFC Fight Night: Allen vs. Costa,2026-05-16,Tuco Tokkos,Ivan Erslan,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-UFC Fight Night: Allen vs. Costa,2026-05-16,Ketlen Vieira,Jacqueline Cavalcanti,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-UFC Fight Night: Allen vs. Costa,2026-05-16,Cody Brundage,Andre Petroski,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-UFC Fight Night: Allen vs. Costa,2026-05-16,Alice Ardelean,Polyana Viana,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-UFC Fight Night: Allen vs. Costa,2026-05-16,Daniel Barez,Luis Gurule,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-UFC Fight Night: Allen vs. Costa,2026-05-16,Shauna Bannon,Nicolle Caliari,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+event_name,event_date,fighterA,fighterB,fighterA_url,fighterB_url,winner,method,round_num,time_in_round,fighterA_sig_strikes_landed,fighterA_sig_strikes_attempted,fighterA_takedowns_landed,fighterA_takedowns_attempted,fighterA_submission_attempts,fighterA_knockdowns,fighterA_control_time_seconds,fighterB_sig_strikes_landed,fighterB_sig_strikes_attempted,fighterB_takedowns_landed,fighterB_takedowns_attempted,fighterB_submission_attempts,fighterB_knockdowns,fighterB_control_time_seconds
+UFC Fight Night: Allen vs. Costa,2026-05-16,Arnold Allen,Melquizael Costa,http://ufcstats.com/fighter-details/040a74bb0a465c54,http://ufcstats.com/fighter-details/20bccc9bb4ceb23e,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Dooho Choi,Daniel Santos,http://ufcstats.com/fighter-details/e93b04e308913c2e,http://ufcstats.com/fighter-details/b67d6bacc68d4c92,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Malcolm Wellmaker,Juan Diaz,http://ufcstats.com/fighter-details/2e45d08b3f2f02c8,http://ufcstats.com/fighter-details/74939a16c7b56f33,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Modestas Bukauskas,Rodolfo Bellato,http://ufcstats.com/fighter-details/476fe566d2df676e,http://ufcstats.com/fighter-details/69898645d600abdb,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Timmy Cuamba,Benardo Sopaj,http://ufcstats.com/fighter-details/0e46690e55a8df75,http://ufcstats.com/fighter-details/b6c37948cb226e8c,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Nikolay Veretennikov,Khaos Williams,http://ufcstats.com/fighter-details/0f1efce7d2571d10,http://ufcstats.com/fighter-details/2558ae2e5671e318,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Jeremiah Wells,Nicolas Dalby,http://ufcstats.com/fighter-details/d66a46de8d705353,http://ufcstats.com/fighter-details/9d19d9e4aa2662e8,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Tuco Tokkos,Ivan Erslan,http://ufcstats.com/fighter-details/3e8118c1ab52f211,http://ufcstats.com/fighter-details/64ad3e3b0efa30bb,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Ketlen Vieira,Jacqueline Cavalcanti,http://ufcstats.com/fighter-details/b9706f80d005036c,http://ufcstats.com/fighter-details/e3964ece586e0635,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Cody Brundage,Andre Petroski,http://ufcstats.com/fighter-details/f14f644d41ade29f,http://ufcstats.com/fighter-details/5f61780fe5e9b6d0,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Alice Ardelean,Polyana Viana,http://ufcstats.com/fighter-details/87f8699fdcc2c404,http://ufcstats.com/fighter-details/9673a497a9da119a,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Daniel Barez,Luis Gurule,http://ufcstats.com/fighter-details/e8fe9c15d348e778,http://ufcstats.com/fighter-details/29162be25ebef5f0,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Shauna Bannon,Nicolle Caliari,http://ufcstats.com/fighter-details/9c442aaf149ea982,http://ufcstats.com/fighter-details/fc0a4053eb8a3a59,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0

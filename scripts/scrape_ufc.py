@@ -804,6 +804,8 @@ def build_nearest_event_stats_rows(fights: List[Dict]) -> pd.DataFrame:
                 "event_date": fight.get("event_date"),
                 "fighterA": fighter_a,
                 "fighterB": fighter_b,
+                "fighterA_url": fight.get("fighterA_url", ""),
+                "fighterB_url": fight.get("fighterB_url", ""),
                 "winner": fight.get("winner"),
                 "method": fight.get("method"),
                 "round_num": fight.get("round_num"),

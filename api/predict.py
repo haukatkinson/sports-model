@@ -53,7 +53,7 @@ def predict_fight(payload: Dict) -> Tuple[str, Dict[str, float]]:
     if model is None:
         prob_a = 0.5
     else:
-        X = feature_df[features].to_numpy(dtype=np.float32)
+        X = feature_df[features].astype(np.float32)
         proba = model.predict_proba(X)[0]
         prob_a = float(proba[1])
 
