@@ -1,9 +1,4 @@
 <?php
-ini_set('display_errors', 1);
-error_reporting(E_ALL);
-
-echo "UFC SYSTEM ONLINE";
-
 function tryDbConnection(): ?mysqli
 {
   mysqli_report(MYSQLI_REPORT_OFF);
@@ -597,9 +592,9 @@ unset($fight);
       <div class="hero-grid">
         <div>
           <div class="eyebrow">UFC betting model</div>
-          <h1>Fight predictions for the latest UFC card</h1>
+          <h1>Fight predictions for the next UFC card</h1>
           <p>
-            This landing page reads the latest card export and shows model picks, confidence,
+            This landing page reads the next scheduled card export and shows model picks, confidence,
             and quick access to individual fight prediction pages.
           </p>
           <div class="sub-links">

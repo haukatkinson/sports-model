@@ -1,14 +1,14 @@
 event_name,event_date,fighterA,fighterB,winner,method,round_num,time_in_round,fighterA_sig_strikes_landed,fighterA_sig_strikes_attempted,fighterA_takedowns_landed,fighterA_takedowns_attempted,fighterA_submission_attempts,fighterA_knockdowns,fighterA_control_time_seconds,fighterB_sig_strikes_landed,fighterB_sig_strikes_attempted,fighterB_takedowns_landed,fighterB_takedowns_attempted,fighterB_submission_attempts,fighterB_knockdowns,fighterB_control_time_seconds
-UFC 328: Chimaev vs. Strickland,2026-05-09,Khamzat Chimaev,Sean Strickland,Sean Strickland,,5,5:00,0,0,9,13,0,0,436,0,0,0,1,0,0,181
-UFC 328: Chimaev vs. Strickland,2026-05-09,Joshua Van,Tatsuro Taira,Joshua Van,,5,1:32,0,0,1,2,2,2,81,0,0,8,21,0,0,638
-UFC 328: Chimaev vs. Strickland,2026-05-09,Alexander Volkov,Waldo Cortes Acosta,Alexander Volkov,,3,5:00,0,0,0,1,0,0,3,0,0,0,1,0,0,1
-UFC 328: Chimaev vs. Strickland,2026-05-09,Sean Brady,Joaquin Buckley,Sean Brady,,3,5:00,0,0,4,10,0,0,729,0,0,0,0,0,0,0
-UFC 328: Chimaev vs. Strickland,2026-05-09,King Green,Jeremy Stephens,King Green,,1,4:20,0,0,1,1,1,0,94,0,0,0,0,1,0,7
-UFC 328: Chimaev vs. Strickland,2026-05-09,Ateba Gautier,Ozzy Diaz,Ateba Gautier,,2,1:10,0,0,0,0,0,1,0,0,0,0,3,0,0,63
-UFC 328: Chimaev vs. Strickland,2026-05-09,Joel Alvarez,Yaroslav Amosov,Yaroslav Amosov,,2,1:13,0,0,0,0,0,0,0,0,0,6,11,1,0,232
-UFC 328: Chimaev vs. Strickland,2026-05-09,Grant Dawson,Mateusz Rebecki,Grant Dawson,,3,4:42,0,0,1,3,4,0,428,0,0,1,5,0,1,142
-UFC 328: Chimaev vs. Strickland,2026-05-09,Jim Miller,Jared Gordon,Jim Miller,,1,3:29,0,0,0,0,1,0,0,0,0,2,2,0,0,44
-UFC 328: Chimaev vs. Strickland,2026-05-09,Roman Kopylov,Marco Tulio,Roman Kopylov,,3,5:00,0,0,1,1,0,3,154,0,0,0,0,0,0,0
-UFC 328: Chimaev vs. Strickland,2026-05-09,Pat Sabatini,William Gomis,Pat Sabatini,,3,5:00,0,0,3,20,0,0,672,0,0,0,0,0,0,0
-UFC 328: Chimaev vs. Strickland,2026-05-09,Baisangur Susurkaev,Djorden Santos,Baisangur Susurkaev,,3,4:12,0,0,1,5,1,0,136,0,0,0,1,0,0,21
-UFC 328: Chimaev vs. Strickland,2026-05-09,Clayton Carpenter,Jose Ochoa,Jose Ochoa,,3,5:00,0,0,1,7,0,0,67,0,0,0,2,0,1,69
+UFC Fight Night: Allen vs. Costa,2026-05-16,Arnold Allen,Melquizael Costa,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Dooho Choi,Daniel Santos,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Malcolm Wellmaker,Juan Diaz,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Modestas Bukauskas,Rodolfo Bellato,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Timmy Cuamba,Benardo Sopaj,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Nikolay Veretennikov,Khaos Williams,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Jeremiah Wells,Nicolas Dalby,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Tuco Tokkos,Ivan Erslan,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Ketlen Vieira,Jacqueline Cavalcanti,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Cody Brundage,Andre Petroski,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Alice Ardelean,Polyana Viana,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Daniel Barez,Luis Gurule,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+UFC Fight Night: Allen vs. Costa,2026-05-16,Shauna Bannon,Nicolle Caliari,,,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0

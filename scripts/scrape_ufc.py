@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RAW_PATH = ROOT / "data" / "raw_fights.csv"
 NEAREST_EVENT_STATS_PATH = ROOT / "data" / "nearest_event_fights.csv"
 UFC_EVENTS_URL = "http://ufcstats.com/statistics/events/completed?page=all"
+UFC_UPCOMING_EVENTS_URL = "http://ufcstats.com/statistics/events/upcoming?page=all"
 
 
 @dataclass
@@ -120,8 +121,8 @@ def fetch_html(session: requests.Session, url: str) -> str:
     return response.text
 
 
-def get_completed_event_links(session: requests.Session) -> List[str]:
-    html = fetch_html(session, UFC_EVENTS_URL)
+def get_event_links(session: requests.Session, url: str) -> List[str]:
+    html = fetch_html(session, url)
     links = re.findall(r'href="(http://ufcstats.com/event-details/[^"]+)"', html)
     deduped = []
     seen = set()
@@ -131,6 +132,14 @@ def get_completed_event_links(session: requests.Session) -> List[str]:
         seen.add(link)
         deduped.append(link)
     return deduped
+
+
+def get_completed_event_links(session: requests.Session) -> List[str]:
+    return get_event_links(session, UFC_EVENTS_URL)
+
+
+def get_upcoming_event_links(session: requests.Session) -> List[str]:
+    return get_event_links(session, UFC_UPCOMING_EVENTS_URL)
 
 
 def parse_event_details(session: requests.Session, event_url: str) -> Dict:
@@ -271,6 +280,110 @@ def parse_fight_details(session: requests.Session, fight_url: str) -> Optional[D
         "is_title_fight": is_title_fight,
         "stats": stats,
     }
+
+
+def parse_upcoming_event_fights(session: requests.Session, event_url: str) -> List[Dict]:
+    html = fetch_html(session, event_url)
+    soup = BeautifulSoup(html, "html.parser")
+
+    fights: List[Dict] = []
+    rows = soup.select('tr.b-fight-details__table-row[data-link*="/fight-details/"]')
+    for row in rows:
+        fighter_links = []
+        seen = set()
+        for link in row.select('a[href*="/fighter-details/"]'):
+            name = link.get_text(" ", strip=True)
+            href = link.get("href", "")
+            if not name or href in seen:
+                continue
+            seen.add(href)
+            fighter_links.append((name, href))
+            if len(fighter_links) == 2:
+                break
+
+        if len(fighter_links) < 2:
+            fallback_names = [
+                node.get_text(" ", strip=True)
+                for node in row.select('p.b-fight-details__table-text')
+                if node.get_text(" ", strip=True)
+            ]
+            fallback_names = [name for name in fallback_names if name != "--"]
+            if len(fallback_names) >= 2:
+                fighter_links = [
+                    (fallback_names[0], ""),
+                    (fallback_names[1], ""),
+                ]
+
+        if len(fighter_links) < 2:
+            continue
+
+        fight_url = row.get("data-link", "")
+        if not fight_url:
+            onclick = row.get("onclick", "")
+            match = re.search(r"doNav\('([^']+)'\)", onclick)
+            if match:
+                fight_url = match.group(1)
+
+        fight_text = row.get_text(" ", strip=True)
+        fights.append(
+            {
+                "fighterA": fighter_links[0][0],
+                "fighterB": fighter_links[1][0],
+                "fighterA_url": fighter_links[0][1],
+                "fighterB_url": fighter_links[1][1],
+                "winner": None,
+                "method": "",
+                "round_num": 0,
+                "time_in_round": "",
+                "weight_class_name": normalize_weight_class_name(fight_text),
+                "is_title_fight": bool(re.search(r"title", fight_text, flags=re.IGNORECASE)),
+                "stats": {},
+                "fight_url": fight_url,
+            }
+        )
+
+    return fights
+
+
+def create_session() -> requests.Session:
+    session = requests.Session()
+    session.headers.update(
+        {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        }
+    )
+    return session
+
+
+def attach_event_metadata(fights: List[Dict], event: Dict) -> None:
+    event_name = event.get("event_name")
+    event_date = event.get("event_date")
+    event_location = event.get("event_location")
+    for fight in fights:
+        fight["event_name"] = event_name
+        fight["event_date"] = event_date
+        fight["event_location"] = event_location
+
+
+def build_fighter_profile_cache(session: requests.Session, fights: List[Dict]) -> Dict[str, Dict]:
+    fighter_profile_cache: Dict[str, Dict] = {}
+    for fight in fights:
+        for fighter_name, fighter_url in (
+            (fight["fighterA"], fight.get("fighterA_url", "")),
+            (fight["fighterB"], fight.get("fighterB_url", "")),
+        ):
+            if fighter_name in fighter_profile_cache:
+                continue
+            if fighter_url:
+                try:
+                    fighter_profile_cache[fighter_name] = parse_fighter_profile(session, fighter_url)
+                except Exception:
+                    fighter_profile_cache[fighter_name] = {}
+            else:
+                fighter_profile_cache[fighter_name] = {}
+
+    return fighter_profile_cache
 
 
 def compute_age_on_date(born: Optional[date], when: Optional[date]) -> float:
@@ -622,20 +735,24 @@ def get_nearest_completed_event(session: requests.Session) -> Optional[Dict]:
     return None
 
 
+def get_next_upcoming_event(session: requests.Session) -> Optional[Dict]:
+    today = date.today()
+    for event_link in get_upcoming_event_links(session):
+        event_data = parse_event_details(session, event_link)
+        event_date = event_data.get("event_date")
+        if event_date and event_date >= today:
+            event_data["event_link"] = event_link
+            return event_data
+    return None
+
+
 def scrape_ufc() -> Tuple[List[Dict], Dict[str, Dict], Dict]:
-    session = requests.Session()
-    session.headers.update(
-        {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        }
-    )
+    session = create_session()
 
     nearest_event = get_nearest_completed_event(session)
     if not nearest_event:
         return [], {}, {}
 
-    fighter_profile_cache: Dict[str, Dict] = {}
     fights: List[Dict] = []
 
     event_name = nearest_event["event_name"]
@@ -653,23 +770,23 @@ def scrape_ufc() -> Tuple[List[Dict], Dict[str, Dict], Dict]:
         fight["event_date"] = event_date
         fight["event_location"] = event_location
 
-        for fighter_name, fighter_url in (
-            (fight["fighterA"], fight.get("fighterA_url", "")),
-            (fight["fighterB"], fight.get("fighterB_url", "")),
-        ):
-            if fighter_name in fighter_profile_cache:
-                continue
-            if fighter_url:
-                try:
-                    fighter_profile_cache[fighter_name] = parse_fighter_profile(session, fighter_url)
-                except Exception:
-                    fighter_profile_cache[fighter_name] = {}
-            else:
-                fighter_profile_cache[fighter_name] = {}
-
         fights.append(fight)
 
+    fighter_profile_cache = build_fighter_profile_cache(session, fights)
     return fights, fighter_profile_cache, nearest_event
+
+
+def scrape_upcoming_ufc() -> Tuple[List[Dict], Dict[str, Dict], Dict]:
+    session = create_session()
+
+    upcoming_event = get_next_upcoming_event(session)
+    if not upcoming_event:
+        return [], {}, {}
+
+    fights = parse_upcoming_event_fights(session, upcoming_event["event_link"])
+    attach_event_metadata(fights, upcoming_event)
+    fighter_profile_cache = build_fighter_profile_cache(session, fights)
+    return fights, fighter_profile_cache, upcoming_event
 
 
 def build_nearest_event_stats_rows(fights: List[Dict]) -> pd.DataFrame:
@@ -710,16 +827,20 @@ def build_nearest_event_stats_rows(fights: List[Dict]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Scrape nearest completed UFC event, collect fighter/fight stats, and persist to DB.")
+    parser = argparse.ArgumentParser(description="Scrape UFC completed and upcoming cards, persist training data, and export the next event for the site.")
     parser.parse_args()
 
     fights, fighter_profiles, nearest_event = scrape_ufc()
     if not fights:
         raise RuntimeError("No fights were scraped from nearest completed UFC event.")
 
+    upcoming_fights, _, upcoming_event = scrape_upcoming_ufc()
+    display_fights = upcoming_fights or fights
+    display_event = upcoming_event if upcoming_fights else nearest_event
+
     df = make_feature_rows(fights, fighter_profiles)
     cleaned = normalize_fights(df) if not df.empty else pd.DataFrame()
-    nearest_event_stats = build_nearest_event_stats_rows(fights)
+    nearest_event_stats = build_nearest_event_stats_rows(display_fights)
     RAW_PATH.parent.mkdir(parents=True, exist_ok=True)
     if cleaned.empty:
         pd.DataFrame(
@@ -742,6 +863,8 @@ def main() -> None:
     wrote_db = save_to_database(fights, fighter_profiles)
 
     print(f"Nearest completed event: {nearest_event.get('event_name')} ({nearest_event.get('event_date')})")
+    if display_event:
+        print(f"Landing page event: {display_event.get('event_name')} ({display_event.get('event_date')})")
     print(f"Saved {len(cleaned)} feature rows to {RAW_PATH}")
     print(f"Saved {len(nearest_event_stats)} nearest-event fight rows to {NEAREST_EVENT_STATS_PATH}")
     if wrote_db:
