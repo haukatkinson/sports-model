@@ -158,7 +158,7 @@ function getBetTier(float $edgePercent, int $odds): array
       return ['label' => 'T1 Live Dog', 'desc' => 'Real underdog value. Worth a sprinkle.', 'class' => 'tier-live'];
     }
     if ($edgePercent >= 6.0) {
-      return ['label' => 'T2 Puncher\'s', 'desc' => 'Sprinkle only if you love the price.', 'class' => 'tier-punch'];
+      return ['label' => 'T2 Puncher\'s Chance', 'desc' => 'Sprinkle only if you love the price.', 'class' => 'tier-punch'];
     }
     return ['label' => 'T3 Dead Dog', 'desc' => 'Hard pass in all formats.', 'class' => 'tier-dead'];
   }
@@ -455,7 +455,7 @@ function getTierOrder(): array
     'T4 Fragile Fav',
     'T5 Trap Fav',
     'T1 Live Dog',
-    'T2 Puncher\'s',
+    'T2 Puncher\'s Chance',
     'T3 Dead Dog',
   ];
 }
@@ -469,6 +469,7 @@ function normalizeTierName(string $tier): string
     'T3 Volatile' => 'T3 Volatile Fav',
     'T4 Fragile' => 'T4 Fragile Fav',
     'T5 Trap' => 'T5 Trap Fav',
+    'T2 Puncher\'s' => 'T2 Puncher\'s Chance',
   ];
 
   return $legacyMap[$tier] ?? $tier;
