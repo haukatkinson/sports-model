@@ -1,1 +1,3 @@
-<?php "HELLO WORLD" ?>
+<?php
+header('Location: php/ufc.php');
+exit;

@@ -1,0 +1,7 @@
+strike_diff
+takedown_diff
+reach_diff
+win_streak_diff
+age_diff
+experience_diff
+finish_rate_diff
