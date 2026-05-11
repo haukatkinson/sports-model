@@ -103,3 +103,12 @@ Serve `php/` from your PHP environment and open `php/index.php`.
 	- `age_diff`
 	- `experience_diff`
 	- `finish_rate_diff`
+
+## Landing Page Tracking Automation
+
+- `php/index.php` now writes model picks/tier snapshots to `data/prediction_history.csv` automatically.
+- After an event is completed, run:
+
+`python scripts/update_prediction_results.py`
+
+- This fills `actual_winner` values for pending rows so the tracked record and tier stats on the landing page update.

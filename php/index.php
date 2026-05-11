@@ -371,6 +371,81 @@ function loadPredictionHistory(string $csvPath): array
   return $rows;
 }
 
+function predictionHistoryFightKey(array $row): string
+{
+  $eventName = trim((string)($row['event_name'] ?? ''));
+  $eventDate = trim((string)($row['event_date'] ?? ''));
+  $fighterA = trim((string)($row['fighterA'] ?? ''));
+  $fighterB = trim((string)($row['fighterB'] ?? ''));
+  return md5(strtolower($eventName . '|' . $eventDate . '|' . $fighterA . '|' . $fighterB));
+}
+
+function upsertPredictionHistoryRow(array &$rows, array $entry): bool
+{
+  $entryKey = predictionHistoryFightKey($entry);
+  $entry['fight_key'] = $entryKey;
+
+  foreach ($rows as $index => $row) {
+    $rowKey = predictionHistoryFightKey($row);
+    if ($rowKey !== $entryKey) {
+      continue;
+    }
+
+    $existingActual = trim((string)($row['actual_winner'] ?? ''));
+    if ($existingActual !== '' && trim((string)($entry['actual_winner'] ?? '')) === '') {
+      $entry['actual_winner'] = $existingActual;
+    }
+
+    $entry['created_at'] = (string)($row['created_at'] ?? ($entry['created_at'] ?? ''));
+    $rows[$index] = $entry;
+    return true;
+  }
+
+  $rows[] = $entry;
+  return true;
+}
+
+function savePredictionHistory(string $csvPath, array $rows): bool
+{
+  $dir = dirname($csvPath);
+  if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+    return false;
+  }
+
+  $headers = [
+    'fight_key',
+    'event_name',
+    'event_date',
+    'fighterA',
+    'fighterB',
+    'predicted_winner',
+    'actual_winner',
+    'tier',
+    'confidence',
+    'model_prob',
+    'predicted_method',
+    'created_at',
+    'updated_at',
+  ];
+
+  $handle = fopen($csvPath, 'w');
+  if ($handle === false) {
+    return false;
+  }
+
+  fputcsv($handle, $headers);
+  foreach ($rows as $row) {
+    $values = [];
+    foreach ($headers as $header) {
+      $values[] = $row[$header] ?? '';
+    }
+    fputcsv($handle, $values);
+  }
+
+  fclose($handle);
+  return true;
+}
+
 function getTierOrder(): array
 {
   return [
@@ -514,8 +589,10 @@ if (!$precomputedPredictions) {
   $precomputedPredictions = loadPrecomputedPredictions($predictionCacheAltPath);
 }
 $trackingSummary = buildTrackingSummary(loadPredictionHistory($historyPath));
+$predictionHistoryRows = loadPredictionHistory($historyPath);
 $localOddsCache = loadLocalOddsCache($localOddsCachePath);
 $localOddsCacheDirty = false;
+$predictionHistoryDirty = false;
 $eventName = $fights[0]['event_name'] ?? 'Latest UFC Card';
 $eventDate = $fights[0]['event_date'] ?? null;
 $submittedOdds = $_POST['odds'] ?? [];
@@ -598,6 +675,34 @@ foreach ($fights as &$fight) {
         $fight['recommended_edge'] = $recommendA ? $edgeA : $edgeB;
         $fight['tier'] = getBetTier($fight['recommended_edge'], $fight['recommended_odds']);
       }
+
+      $predictedWinner = trim((string)($prediction['winner'] ?? ''));
+      $predictedMethod = trim((string)($prediction['predicted_method'] ?? ''));
+      $actualWinner = trim((string)($fight['winner'] ?? ''));
+      $tierLabel = isset($fight['tier']['label']) ? trim((string)$fight['tier']['label']) : '';
+      $modelProb = 0.0;
+      if ($predictedWinner !== '') {
+        $modelProb = (float)($prediction['probabilities'][$predictedWinner] ?? 0.0);
+      }
+
+      $timestamp = date('c');
+      $predictionHistoryDirty = upsertPredictionHistoryRow(
+        $predictionHistoryRows,
+        [
+          'event_name' => (string)($fight['event_name'] ?? ''),
+          'event_date' => (string)($fight['event_date'] ?? ''),
+          'fighterA' => (string)($fight['fighterA'] ?? ''),
+          'fighterB' => (string)($fight['fighterB'] ?? ''),
+          'predicted_winner' => $predictedWinner,
+          'actual_winner' => $actualWinner,
+          'tier' => $tierLabel,
+          'confidence' => number_format((float)($fight['confidence'] ?? 0.0), 2, '.', ''),
+          'model_prob' => number_format($modelProb * 100.0, 2, '.', ''),
+          'predicted_method' => $predictedMethod,
+          'created_at' => $timestamp,
+          'updated_at' => $timestamp,
+        ]
+      ) || $predictionHistoryDirty;
     }
 }
 unset($fight);
@@ -610,6 +715,15 @@ if ($localOddsCacheDirty) {
     $dbStatusMessage = 'Database unavailable and local odds cache could not be written. Odds may not persist.';
   }
 }
+
+if ($predictionHistoryDirty) {
+  $historySaved = savePredictionHistory($historyPath, $predictionHistoryRows);
+  if (!$historySaved) {
+    $dbStatusMessage = ($dbStatusMessage ? $dbStatusMessage . ' ' : '') . 'Prediction history could not be saved.';
+  }
+}
+
+$trackingSummary = buildTrackingSummary($predictionHistoryRows);
 
   if (!($dbConn instanceof mysqli)) {
     if ($dbStatusMessage === null) {
@@ -1122,7 +1236,9 @@ if ($localOddsCacheDirty) {
               <?php if (!isset($fight['prediction']['error']) && !empty($fight['prediction']['explanation']) && is_array($fight['prediction']['explanation'])): ?>
                 <div class="explain-box">
                   <div class="explain-title">Model Breakdown</div>
-                  <?php if (!empty($fight['prediction']['explanation']['summary'])): ?>
+                  <?php if (!empty($fight['prediction']['explanation']['detailed_summary'])): ?>
+                    <div class="explain-summary"><?= htmlspecialchars((string)$fight['prediction']['explanation']['detailed_summary']) ?></div>
+                  <?php elseif (!empty($fight['prediction']['explanation']['summary'])): ?>
                     <div class="explain-summary"><?= htmlspecialchars((string)$fight['prediction']['explanation']['summary']) ?></div>
                   <?php endif; ?>
                   <?php if (!empty($fight['prediction']['explanation']['factors']) && is_array($fight['prediction']['explanation']['factors'])): ?>

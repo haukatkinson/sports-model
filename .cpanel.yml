@@ -5,7 +5,9 @@ deployment:
     - /bin/mkdir -p $DEPLOYPATH/data
     - /bin/mkdir -p $DEPLOYPATH/api
     - /bin/mkdir -p $DEPLOYPATH/models
+    - /bin/mkdir -p $DEPLOYPATH/scripts
     - /bin/cp -R php/. $DEPLOYPATH/ufc/
     - /bin/cp -R data/. $DEPLOYPATH/data/
     - /bin/cp -R api/. $DEPLOYPATH/api/
     - /bin/cp -R models/. $DEPLOYPATH/models/
+    - /bin/cp -R scripts/. $DEPLOYPATH/scripts/

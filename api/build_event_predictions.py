@@ -78,17 +78,60 @@ def parse_percent_stat(text: str, label: str) -> float:
     return float(match.group(1)) if match else 0.0
 
 
-def parse_fighter_profile(url: str, cache: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+def extract_recent_opponent_urls(html: str, fighter_url: str, limit: int = 5) -> list[str]:
+    links = re.findall(r'href="(http://ufcstats.com/fighter-details/[a-z0-9]+)"', html)
+    seen: set[str] = set()
+    opponents: list[str] = []
+    for link in links:
+        if link == fighter_url:
+            continue
+        if link in seen:
+            continue
+        seen.add(link)
+        opponents.append(link)
+        if len(opponents) >= limit:
+            break
+    return opponents
+
+
+def compute_sos_score(opponent_profiles: list[Dict[str, Any]]) -> float:
+    weighted_sum = 0.0
+    weight_total = 0.0
+    for index, opponent in enumerate(opponent_profiles):
+        wins = int(opponent.get("wins", 0) or 0)
+        losses = int(opponent.get("losses", 0) or 0)
+        draws = int(opponent.get("draws", 0) or 0)
+        total = wins + losses + draws
+        if total == 0:
+            continue
+        win_rate = wins / total
+        recency_weight = float(len(opponent_profiles) - index)
+        experience_weight = min(2.0, 1.0 + math.log1p(total) / 4.0)
+        weight = recency_weight * experience_weight
+        weighted_sum += win_rate * weight
+        weight_total += weight
+
+    if weight_total <= 0:
+        return 0.5
+    return weighted_sum / weight_total
+
+
+def parse_fighter_profile(url: str, cache: Dict[str, Dict[str, Any]], include_sos: bool = True) -> Dict[str, Any]:
     if not url:
         return {}
-    if url in cache:
+    cache_key = url if include_sos else f"{url}#nosos"
+    if cache_key in cache:
+        return cache[cache_key]
+    if include_sos and url in cache:
         return cache[url]
 
     try:
         html = fetch_html(url)
     except Exception:
-        cache[url] = {}
-        return cache[url]
+        cache[cache_key] = {}
+        if include_sos:
+            cache[url] = {}
+        return cache[cache_key]
 
     text = re.sub(r"<[^>]+>", " ", html)
     text = re.sub(r"\s+", " ", text).strip()
@@ -109,8 +152,21 @@ def parse_fighter_profile(url: str, cache: Dict[str, Dict[str, Any]]) -> Dict[st
         "sub_avg": parse_float_stat(text, "Sub. Avg."),
         "str_def": parse_percent_stat(text, "Str. Def"),
         "td_def": parse_percent_stat(text, "TD Def."),
+        "sos_score": 0.5,
     }
-    cache[url] = profile
+
+    if include_sos:
+        opponent_urls = extract_recent_opponent_urls(html, url, limit=5)
+        opponent_profiles = [
+            parse_fighter_profile(opponent_url, cache, include_sos=False)
+            for opponent_url in opponent_urls
+        ]
+        opponent_profiles = [opponent for opponent in opponent_profiles if opponent]
+        profile["sos_score"] = compute_sos_score(opponent_profiles)
+
+    cache[cache_key] = profile
+    if include_sos:
+        cache[url] = profile
     return profile
 
 
@@ -126,7 +182,9 @@ def fighter_base_score(profile: Dict[str, Any]) -> float:
     total = wins + losses + draws
     win_rate = (wins / total) if total else 0.5
     experience_bonus = math.log1p(total) / 10.0
-    return (win_rate - 0.5) + experience_bonus
+    sos_score = float(profile.get("sos_score", 0.5) or 0.5)
+    sos_bonus = (sos_score - 0.5) * 0.9
+    return (win_rate - 0.5) + experience_bonus + sos_bonus
 
 
 def fighter_age(profile: Dict[str, Any]) -> float | None:
@@ -152,6 +210,7 @@ def profile_metrics(profile: Dict[str, Any]) -> Dict[str, float]:
         "win_rate": float(win_rate),
         "reach_cm": float(reach_cm),
         "age_years": float(age_years) if age_years is not None else float("nan"),
+        "sos_score": float(profile.get("sos_score", 0.5) or 0.5),
     }
 
 
@@ -241,6 +300,11 @@ def build_explanation(
             experienced = fighter_a if exp_diff > 0 else fighter_b
             factors.append((abs(exp_diff) / 50.0, f"{experienced} has more pro fight experience"))
 
+        sos_diff = metrics_a["sos_score"] - metrics_b["sos_score"]
+        if abs(sos_diff) >= 0.05:
+            tougher = fighter_a if sos_diff > 0 else fighter_b
+            factors.append((abs(sos_diff) * 1.9, f"{tougher} has faced tougher recent opposition in the last 5 opponents (SoS)"))
+
         age_a = metrics_a.get("age_years")
         age_b = metrics_b.get("age_years")
         if isinstance(age_a, float) and isinstance(age_b, float) and not math.isnan(age_a) and not math.isnan(age_b):
@@ -261,8 +325,27 @@ def build_explanation(
 
     summary = f"{favored} is favored over {underdog} based on blended model and profile matchup signals."
 
+    model_edge_name = fighter_a if prob_model_a >= 0.5 else fighter_b
+    model_edge_points = abs(prob_model_a - 0.5) * 200.0
+    profile_narrative = "Profile signal was unavailable for one or both fighters."
+    if prob_profile_a is not None:
+        profile_edge_name = fighter_a if prob_profile_a >= 0.5 else fighter_b
+        profile_edge_points = abs(prob_profile_a - 0.5) * 200.0
+        profile_narrative = f"Matchup profile leans {profile_edge_name} by {profile_edge_points:.1f} points."
+
+    blended_points = abs(prob_final_a - 0.5) * 200.0
+    confidence_band = "high" if blended_points >= 24 else ("medium" if blended_points >= 12 else "low")
+    favored_pct = prob_final_a * 100.0 if favored == fighter_a else (1.0 - prob_final_a) * 100.0
+    detailed_summary = (
+        f"{favored} is projected at {favored_pct:.1f}% win probability. "
+        f"Baseline model leans {model_edge_name} by {model_edge_points:.1f} points. "
+        f"{profile_narrative} "
+        f"Final blended edge is {blended_points:.1f} points ({confidence_band} confidence)."
+    )
+
     return {
         "summary": summary,
+        "detailed_summary": detailed_summary,
         "factors": factors_sorted,
         "source": "blended-model-profile",
         "blended_prob_fighterA": round(prob_final_a, 6),
@@ -281,8 +364,8 @@ def apply_matchup_correction(prob_model_a: float, prob_profile_a: float | None) 
 
     raw_delta = prob_profile_a - prob_model_a
     model_extremeness = min(1.0, abs(prob_model_a - 0.5) * 2.0)
-    correction_weight = 0.65 + (0.25 * model_extremeness)
-    correction = raw_delta * correction_weight
+    correction_scale = 0.18 + (0.06 * model_extremeness)
+    correction = math.tanh(raw_delta * 2.25) * correction_scale
     corrected = max(0.01, min(0.99, prob_model_a + correction))
     return corrected, correction
 
