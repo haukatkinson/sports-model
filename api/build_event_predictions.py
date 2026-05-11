@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 from pathlib import Path
 from typing import Dict, Any
-
-import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / "data" / "nearest_event_fights.csv"
@@ -28,12 +27,15 @@ def main() -> None:
     if not DATA_PATH.exists():
         raise FileNotFoundError(f"Missing input file: {DATA_PATH}")
 
-    df = pd.read_csv(DATA_PATH)
-    if "fighterA" not in df.columns or "fighterB" not in df.columns:
-        raise ValueError("Input CSV must include fighterA and fighterB columns")
+    with DATA_PATH.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if not reader.fieldnames or "fighterA" not in reader.fieldnames or "fighterB" not in reader.fieldnames:
+            raise ValueError("Input CSV must include fighterA and fighterB columns")
+
+        rows = list(reader)
 
     predictions: Dict[str, Any] = {}
-    for _, row in df.iterrows():
+    for row in rows:
         fighter_a = str(row.get("fighterA", "")).strip()
         fighter_b = str(row.get("fighterB", "")).strip()
         if not fighter_a or not fighter_b:
