@@ -9,6 +9,26 @@ function getPredictionApiUrl(): string
   return 'http://127.0.0.1:5000/predict';
 }
 
+function buildFightKey(string $fighterA, string $fighterB): string
+{
+  return md5($fighterA . '|' . $fighterB);
+}
+
+function loadPrecomputedPredictions(string $jsonPath): array
+{
+  if (!file_exists($jsonPath)) {
+    return [];
+  }
+
+  $raw = @file_get_contents($jsonPath);
+  if ($raw === false) {
+    return [];
+  }
+
+  $decoded = json_decode($raw, true);
+  return is_array($decoded) ? $decoded : [];
+}
+
 $fighterA = $_GET['fighterA'] ?? '';
 $fighterB = $_GET['fighterB'] ?? '';
 
@@ -16,6 +36,12 @@ $prediction = null;
 $error = null;
 
 if ($fighterA !== '' && $fighterB !== '') {
+  $cachePath = dirname(__DIR__) . '/data/nearest_event_predictions.json';
+  $precomputed = loadPrecomputedPredictions($cachePath);
+  $fightKey = buildFightKey($fighterA, $fighterB);
+  if (isset($precomputed[$fightKey]) && is_array($precomputed[$fightKey])) {
+    $prediction = $precomputed[$fightKey];
+  } else {
     $payload = json_encode([
         'fighterA' => $fighterA,
         'fighterB' => $fighterB,
@@ -42,6 +68,7 @@ if ($fighterA !== '' && $fighterB !== '') {
             $prediction = $decoded;
         }
     }
+        }
 }
 ?>
 <!doctype html>

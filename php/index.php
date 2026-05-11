@@ -59,6 +59,25 @@ function callPredictionApi(string $fighterA, string $fighterB): array
     return $decoded;
 }
 
+  function loadPrecomputedPredictions(string $jsonPath): array
+  {
+    if (!file_exists($jsonPath)) {
+      return [];
+    }
+
+    $raw = @file_get_contents($jsonPath);
+    if ($raw === false) {
+      return [];
+    }
+
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+      return [];
+    }
+
+    return $decoded;
+  }
+
 function americanOddsToImpliedProbability($odds): ?float
 {
   if ($odds === null || $odds === '') {
@@ -243,7 +262,9 @@ function loadNearestEventFights(string $csvPath): array
   }
 
 $csvPath = dirname(__DIR__) . '/data/nearest_event_fights.csv';
+$predictionCachePath = dirname(__DIR__) . '/data/nearest_event_predictions.json';
 $fights = loadNearestEventFights($csvPath);
+$precomputedPredictions = loadPrecomputedPredictions($predictionCachePath);
 $eventName = $fights[0]['event_name'] ?? 'Latest UFC Card';
 $eventDate = $fights[0]['event_date'] ?? null;
 $submittedOdds = $_POST['odds'] ?? [];
@@ -277,7 +298,11 @@ foreach ($fights as &$fight) {
       }
     }
 
-    $prediction = callPredictionApi($fight['fighterA'], $fight['fighterB']);
+    if (isset($precomputedPredictions[$fightKey]) && is_array($precomputedPredictions[$fightKey])) {
+      $prediction = $precomputedPredictions[$fightKey];
+    } else {
+      $prediction = callPredictionApi($fight['fighterA'], $fight['fighterB']);
+    }
     $fight['prediction'] = $prediction;
 
     $fighterAOdds = $submittedOdds[$fightKey]['fighterA'] ?? ($fight['fighterA_saved_odds'] ?? '');
