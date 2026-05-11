@@ -65,6 +65,18 @@ def parse_dob(text: str) -> date | None:
     return None
 
 
+def parse_float_stat(text: str, label: str) -> float:
+    pattern = rf"{re.escape(label)}\s*:\s*(\d+(?:\.\d+)?)"
+    match = re.search(pattern, text, flags=re.IGNORECASE)
+    return float(match.group(1)) if match else 0.0
+
+
+def parse_percent_stat(text: str, label: str) -> float:
+    pattern = rf"{re.escape(label)}\s*:\s*(\d+(?:\.\d+)?)%"
+    match = re.search(pattern, text, flags=re.IGNORECASE)
+    return float(match.group(1)) if match else 0.0
+
+
 def parse_fighter_profile(url: str, cache: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     if not url:
         return {}
@@ -90,6 +102,12 @@ def parse_fighter_profile(url: str, cache: Dict[str, Dict[str, Any]]) -> Dict[st
         "draws": draws,
         "reach_cm": reach_cm,
         "dob": dob,
+        "slpm": parse_float_stat(text, "SLpM"),
+        "sapm": parse_float_stat(text, "SApM"),
+        "td_avg": parse_float_stat(text, "TD Avg."),
+        "sub_avg": parse_float_stat(text, "Sub. Avg."),
+        "str_def": parse_percent_stat(text, "Str. Def"),
+        "td_def": parse_percent_stat(text, "TD Def."),
     }
     cache[url] = profile
     return profile
@@ -201,6 +219,29 @@ def build_explanation(
     }
 
 
+def choose_predicted_method(winner_profile: Dict[str, Any], loser_profile: Dict[str, Any], confidence: float) -> str:
+    winner_slpm = float(winner_profile.get("slpm", 0.0) or 0.0)
+    winner_sub_avg = float(winner_profile.get("sub_avg", 0.0) or 0.0)
+    winner_td_avg = float(winner_profile.get("td_avg", 0.0) or 0.0)
+
+    loser_sapm = float(loser_profile.get("sapm", 0.0) or 0.0)
+    loser_str_def = float(loser_profile.get("str_def", 0.0) or 0.0)
+    loser_td_def = float(loser_profile.get("td_def", 0.0) or 0.0)
+
+    ko_signal = (winner_slpm * 0.9) + (loser_sapm * 0.7) + ((100.0 - loser_str_def) / 100.0)
+    sub_signal = (winner_sub_avg * 1.25) + (winner_td_avg * 0.5) + ((100.0 - loser_td_def) / 100.0)
+
+    decision_signal = 1.25 + max(0.0, 0.18 - abs(confidence - 0.5)) * 5.0
+    decision_signal += max(0.0, 0.55 - max(ko_signal, sub_signal))
+
+    method_scores = {
+        "KO/TKO": ko_signal,
+        "Submission": sub_signal,
+        "Decision": decision_signal,
+    }
+    return max(method_scores, key=method_scores.get)
+
+
 def sigmoid(value: float) -> float:
     return 1.0 / (1.0 + math.exp(-value))
 
@@ -252,9 +293,13 @@ def main() -> None:
         prob_a = max(0.01, min(0.99, prob_a))
         prob_b = 1.0 - prob_a
         winner = fighter_a if prob_a >= prob_b else fighter_b
+        winner_profile = profile_a if winner == fighter_a else profile_b
+        loser_profile = profile_b if winner == fighter_a else profile_a
+        predicted_method = choose_predicted_method(winner_profile or {}, loser_profile or {}, prob_a)
 
         predictions[build_fight_key(fighter_a, fighter_b)] = {
             "winner": winner,
+            "predicted_method": predicted_method,
             "probabilities": {
                 fighter_a: prob_a,
                 fighter_b: prob_b,

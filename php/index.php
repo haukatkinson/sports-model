@@ -303,14 +303,177 @@ function loadNearestEventFights(string $csvPath): array
     return $ok;
   }
 
+function loadPredictionHistory(string $csvPath): array
+{
+  if (!file_exists($csvPath)) {
+    return [];
+  }
+
+  $handle = fopen($csvPath, 'r');
+  if ($handle === false) {
+    return [];
+  }
+
+  $headers = fgetcsv($handle);
+  if ($headers === false) {
+    fclose($handle);
+    return [];
+  }
+
+  $rows = [];
+  while (($data = fgetcsv($handle)) !== false) {
+    if (count($data) !== count($headers)) {
+      continue;
+    }
+    $rows[] = array_combine($headers, $data);
+  }
+
+  fclose($handle);
+  return $rows;
+}
+
+function getTierOrder(): array
+{
+  return [
+    'T1 Elite',
+    'T2 Strong',
+    'T3 Volatile',
+    'T4 Fragile',
+    'T5 Trap',
+    'T1 Live Dog',
+    'T2 Puncher\'s',
+    'T3 Dead Dog',
+  ];
+}
+
+function formatRecordStats(array $stats): string
+{
+  return $stats['wins'] . '-' . $stats['losses'] . ($stats['pushes'] > 0 ? '-' . $stats['pushes'] : '');
+}
+
+function parsePercentValue($value): float
+{
+  $num = (float)$value;
+  if ($num <= 1.0) {
+    $num *= 100.0;
+  }
+  return max(0.0, min(100.0, $num));
+}
+
+function buildTrackingSummary(array $historyRows): array
+{
+  $summary = [
+    'totals' => ['wins' => 0, 'losses' => 0, 'pushes' => 0],
+    'events' => [],
+    'tiers' => [],
+    'bins' => [
+      '50-59%' => ['wins' => 0, 'losses' => 0, 'pushes' => 0],
+      '60-69%' => ['wins' => 0, 'losses' => 0, 'pushes' => 0],
+      '70-79%' => ['wins' => 0, 'losses' => 0, 'pushes' => 0],
+      '80+%' => ['wins' => 0, 'losses' => 0, 'pushes' => 0],
+    ],
+    'since' => null,
+    'bestEvent' => null,
+    'bestTier' => null,
+  ];
+
+  foreach (getTierOrder() as $tierName) {
+    $summary['tiers'][$tierName] = ['wins' => 0, 'losses' => 0, 'pushes' => 0];
+  }
+
+  foreach ($historyRows as $row) {
+    $predicted = trim((string)($row['predicted_winner'] ?? $row['prediction'] ?? $row['model_pick'] ?? ''));
+    $actual = trim((string)($row['actual_winner'] ?? $row['winner'] ?? ''));
+    $tier = trim((string)($row['tier'] ?? ''));
+    $eventName = trim((string)($row['event_name'] ?? 'Unknown Event'));
+    $eventDate = trim((string)($row['event_date'] ?? ''));
+    $confidence = parsePercentValue($row['confidence'] ?? $row['confidence_pct'] ?? 0);
+
+    if ($eventDate !== '' && ($summary['since'] === null || strcmp($eventDate, $summary['since']) < 0)) {
+      $summary['since'] = $eventDate;
+    }
+
+    if (!isset($summary['events'][$eventName])) {
+      $summary['events'][$eventName] = ['wins' => 0, 'losses' => 0, 'pushes' => 0, 'event_date' => $eventDate];
+    }
+
+    $bucket = '50-59%';
+    if ($confidence >= 80) {
+      $bucket = '80+%';
+    } elseif ($confidence >= 70) {
+      $bucket = '70-79%';
+    } elseif ($confidence >= 60) {
+      $bucket = '60-69%';
+    }
+
+    $isPush = ($actual === '' || stripos($actual, 'draw') !== false || stripos($actual, 'no contest') !== false);
+    if ($isPush) {
+      $summary['totals']['pushes']++;
+      $summary['events'][$eventName]['pushes']++;
+      $summary['bins'][$bucket]['pushes']++;
+      if (isset($summary['tiers'][$tier])) {
+        $summary['tiers'][$tier]['pushes']++;
+      }
+      continue;
+    }
+
+    $isWin = ($predicted !== '' && strcasecmp($predicted, $actual) === 0);
+    $target = $isWin ? 'wins' : 'losses';
+    $summary['totals'][$target]++;
+    $summary['events'][$eventName][$target]++;
+    $summary['bins'][$bucket][$target]++;
+    if (isset($summary['tiers'][$tier])) {
+      $summary['tiers'][$tier][$target]++;
+    }
+  }
+
+  $bestEventName = null;
+  $bestEventRate = -1.0;
+  foreach ($summary['events'] as $name => $stats) {
+    $total = $stats['wins'] + $stats['losses'];
+    if ($total === 0) {
+      continue;
+    }
+    $rate = $stats['wins'] / $total;
+    if ($rate > $bestEventRate) {
+      $bestEventRate = $rate;
+      $bestEventName = $name;
+    }
+  }
+  if ($bestEventName !== null) {
+    $summary['bestEvent'] = ['name' => $bestEventName, 'rate' => $bestEventRate * 100];
+  }
+
+  $bestTierName = null;
+  $bestTierRate = -1.0;
+  foreach ($summary['tiers'] as $name => $stats) {
+    $total = $stats['wins'] + $stats['losses'];
+    if ($total < 3) {
+      continue;
+    }
+    $rate = $stats['wins'] / $total;
+    if ($rate > $bestTierRate) {
+      $bestTierRate = $rate;
+      $bestTierName = $name;
+    }
+  }
+  if ($bestTierName !== null) {
+    $summary['bestTier'] = ['name' => $bestTierName, 'rate' => $bestTierRate * 100];
+  }
+
+  return $summary;
+}
+
 $csvPath = dirname(__DIR__) . '/data/nearest_event_fights.csv';
 $predictionCachePath = dirname(__DIR__) . '/data/nearest_event_predictions.json';
 $predictionCacheAltPath = __DIR__ . '/data/nearest_event_predictions.json';
+$historyPath = dirname(__DIR__) . '/data/prediction_history.csv';
 $fights = loadNearestEventFights($csvPath);
 $precomputedPredictions = loadPrecomputedPredictions($predictionCachePath);
 if (!$precomputedPredictions) {
   $precomputedPredictions = loadPrecomputedPredictions($predictionCacheAltPath);
 }
+$trackingSummary = buildTrackingSummary(loadPredictionHistory($historyPath));
 $eventName = $fights[0]['event_name'] ?? 'Latest UFC Card';
 $eventDate = $fights[0]['event_date'] ?? null;
 $submittedOdds = $_POST['odds'] ?? [];
@@ -693,6 +856,66 @@ unset($fight);
       color: var(--muted);
     }
 
+    .tracking-panel {
+      margin-top: 24px;
+      background: rgba(10, 15, 30, 0.65);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 20px;
+    }
+
+    .tracking-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .tracking-stat {
+      background: #0d152b;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+    }
+
+    .tracking-stat small {
+      color: var(--muted);
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .tracking-stat strong {
+      font-size: 20px;
+      display: block;
+    }
+
+    .tracking-columns {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .tracking-box {
+      background: #0d152b;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+    }
+
+    .tracking-box h4 {
+      margin-bottom: 10px;
+    }
+
+    .tracking-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
     @media (max-width: 900px) {
       .hero-grid { grid-template-columns: 1fr; }
     }
@@ -850,7 +1073,7 @@ unset($fight);
               <div class="fight-meta">
                 <div>Round: <?= htmlspecialchars((string)($fight['round_num'] ?? 'N/A')) ?></div>
                 <div>Time: <?= htmlspecialchars($fight['time_in_round'] ?? 'N/A') ?></div>
-                <div>Method: <?= htmlspecialchars($fight['method'] ?: 'Decision/Unknown') ?></div>
+                <div>Method: <?= htmlspecialchars($fight['method'] ?: ($fight['prediction']['predicted_method'] ?? 'Decision/Unknown')) ?></div>
                 <div>
                   A line: <?= htmlspecialchars(formatAmericanOdds($fight['fighterA_odds'] ?? '')) ?>
                   <?php if (isset($fight['fighterA_implied']) && $fight['fighterA_implied'] !== null): ?>
@@ -881,6 +1104,89 @@ unset($fight);
           <?php endforeach; ?>
         </div>
       <?php endif; ?>
+
+      <?php
+        $totalWins = (int)$trackingSummary['totals']['wins'];
+        $totalLosses = (int)$trackingSummary['totals']['losses'];
+        $totalPushes = (int)$trackingSummary['totals']['pushes'];
+        $totalTracked = $totalWins + $totalLosses;
+        $accuracy = $totalTracked > 0 ? ($totalWins / $totalTracked) * 100 : null;
+        $sinceLabel = $trackingSummary['since'] ?: 'No tracked start date';
+      ?>
+      <div class="tracking-panel">
+        <h3>Tracked Record</h3>
+        <div class="tracking-grid">
+          <div class="tracking-stat">
+            <small>Record</small>
+            <strong><?= htmlspecialchars(formatRecordStats($trackingSummary['totals'])) ?></strong>
+            <small><?= $accuracy !== null ? number_format($accuracy, 1) . '% accuracy' : 'No graded picks yet' ?></small>
+          </div>
+          <div class="tracking-stat">
+            <small>Events Tracked</small>
+            <strong><?= count($trackingSummary['events']) ?></strong>
+            <small>since <?= htmlspecialchars($sinceLabel) ?></small>
+          </div>
+          <div class="tracking-stat">
+            <small>Best Event</small>
+            <strong><?= $trackingSummary['bestEvent'] ? number_format((float)$trackingSummary['bestEvent']['rate'], 1) . '%' : '—' ?></strong>
+            <small><?= htmlspecialchars($trackingSummary['bestEvent']['name'] ?? 'No event history yet') ?></small>
+          </div>
+          <div class="tracking-stat">
+            <small>Best Tier (min 3)</small>
+            <strong><?= $trackingSummary['bestTier'] ? htmlspecialchars($trackingSummary['bestTier']['name']) : '—' ?></strong>
+            <small><?= $trackingSummary['bestTier'] ? number_format((float)$trackingSummary['bestTier']['rate'], 1) . '% hit rate' : 'Need at least 3 picks in a tier' ?></small>
+          </div>
+        </div>
+
+        <div class="tracking-columns">
+          <div class="tracking-box">
+            <h4>Performance by Tier</h4>
+            <?php foreach (getTierOrder() as $tierName): ?>
+              <?php $tierStats = $trackingSummary['tiers'][$tierName] ?? ['wins' => 0, 'losses' => 0, 'pushes' => 0]; ?>
+              <?php $tierTotal = $tierStats['wins'] + $tierStats['losses']; ?>
+              <div class="tracking-row">
+                <span><?= htmlspecialchars($tierName) ?></span>
+                <span>
+                  <?= htmlspecialchars(formatRecordStats($tierStats)) ?>
+                  · <?= $tierTotal > 0 ? number_format(($tierStats['wins'] / $tierTotal) * 100, 1) . '%' : '—' ?>
+                </span>
+              </div>
+            <?php endforeach; ?>
+          </div>
+
+          <div class="tracking-box">
+            <h4>Performance by Win Probability</h4>
+            <?php foreach ($trackingSummary['bins'] as $label => $binStats): ?>
+              <?php $binTotal = $binStats['wins'] + $binStats['losses']; ?>
+              <div class="tracking-row">
+                <span><?= htmlspecialchars($label) ?></span>
+                <span>
+                  <?= htmlspecialchars(formatRecordStats($binStats)) ?>
+                  · <?= $binTotal > 0 ? number_format(($binStats['wins'] / $binTotal) * 100, 1) . '%' : '—' ?>
+                </span>
+              </div>
+            <?php endforeach; ?>
+          </div>
+
+          <div class="tracking-box">
+            <h4>Event History</h4>
+            <?php if (empty($trackingSummary['events'])): ?>
+              <div class="tracking-row"><span>No completed picks tracked yet.</span><span>—</span></div>
+            <?php else: ?>
+              <?php foreach ($trackingSummary['events'] as $name => $eventStats): ?>
+                <?php $eventTotal = $eventStats['wins'] + $eventStats['losses']; ?>
+                <div class="tracking-row">
+                  <span><?= htmlspecialchars($name) ?></span>
+                  <span>
+                    <?= htmlspecialchars(formatRecordStats($eventStats)) ?>
+                    · <?= $eventTotal > 0 ? number_format(($eventStats['wins'] / $eventTotal) * 100, 1) . '%' : '—' ?>
+                  </span>
+                </div>
+              <?php endforeach; ?>
+            <?php endif; ?>
+          </div>
+        </div>
+      </div>
     </section>
   </div>
 </body>
