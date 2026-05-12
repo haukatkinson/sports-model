@@ -181,9 +181,9 @@ def fighter_base_score(profile: Dict[str, Any]) -> float:
     draws = int(profile.get("draws", 0) or 0)
     total = wins + losses + draws
     win_rate = (wins / total) if total else 0.5
-    experience_bonus = math.log1p(total) / 10.0
+    experience_bonus = math.log1p(total) / 14.0
     sos_score = float(profile.get("sos_score", 0.5) or 0.5)
-    sos_bonus = (sos_score - 0.5) * 0.9
+    sos_bonus = (sos_score - 0.5) * 0.45
     return (win_rate - 0.5) + experience_bonus + sos_bonus
 
 
@@ -557,8 +557,8 @@ def apply_matchup_correction(prob_model_a: float, prob_profile_a: float | None) 
 
     raw_delta = prob_profile_a - prob_model_a
     model_extremeness = min(1.0, abs(prob_model_a - 0.5) * 2.0)
-    correction_scale = 0.18 + (0.06 * model_extremeness)
-    correction = math.tanh(raw_delta * 2.25) * correction_scale
+    correction_scale = 0.10 + (0.04 * model_extremeness)
+    correction = math.tanh(raw_delta * 1.1) * correction_scale
     corrected = max(0.01, min(0.99, prob_model_a + correction))
     return corrected, correction
 
@@ -679,8 +679,8 @@ def main() -> None:
         if profile_a and profile_b:
             base_diff = fighter_base_score(profile_a) - fighter_base_score(profile_b)
             style_diff, _ = matchup_score(profile_a, profile_b, weight_class_name)
-            score_diff = (base_diff * 0.7) + style_diff
-            prob_profile_a = sigmoid(score_diff * 2.5)
+            score_diff = (base_diff * 0.85) + (style_diff * 0.45)
+            prob_profile_a = sigmoid(score_diff * 1.1)
             prob_a, matchup_correction = apply_matchup_correction(prob_model_a, prob_profile_a)
         else:
             prob_a = prob_model_a
