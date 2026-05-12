@@ -214,6 +214,30 @@ def profile_metrics(profile: Dict[str, Any]) -> Dict[str, float]:
     }
 
 
+def compute_uncertainty_factor(profile_a: Dict[str, Any], profile_b: Dict[str, Any]) -> float:
+    wins_a = int(profile_a.get("wins", 0) or 0)
+    losses_a = int(profile_a.get("losses", 0) or 0)
+    draws_a = int(profile_a.get("draws", 0) or 0)
+    total_a = wins_a + losses_a + draws_a
+
+    wins_b = int(profile_b.get("wins", 0) or 0)
+    losses_b = int(profile_b.get("losses", 0) or 0)
+    draws_b = int(profile_b.get("draws", 0) or 0)
+    total_b = wins_b + losses_b + draws_b
+
+    avg_total = (total_a + total_b) / 2.0
+    volume_factor = min(1.0, avg_total / 12.0)
+    low_exp_guard = min(1.0, max(0.0, float(min(total_a, total_b))) / 6.0)
+
+    stat_keys = ["slpm", "sapm", "td_avg", "sub_avg", "str_def", "td_def", "reach_cm"]
+    present_a = sum(1 for key in stat_keys if float(profile_a.get(key, 0.0) or 0.0) > 0.0)
+    present_b = sum(1 for key in stat_keys if float(profile_b.get(key, 0.0) or 0.0) > 0.0)
+    completeness = (present_a + present_b) / float(len(stat_keys) * 2)
+
+    factor = (volume_factor * 0.55) + (low_exp_guard * 0.25) + (completeness * 0.20)
+    return max(0.45, min(1.0, factor))
+
+
 def build_model_feature_payload(
     fighter_a: str,
     fighter_b: str,
@@ -676,12 +700,15 @@ def main() -> None:
         feature_signatures.append(build_feature_signature(profile_a or {}, profile_b or {}, weight_class_name))
 
         prob_profile_a = None
+        uncertainty_factor = 1.0
         if profile_a and profile_b:
             base_diff = fighter_base_score(profile_a) - fighter_base_score(profile_b)
             style_diff, _ = matchup_score(profile_a, profile_b, weight_class_name)
             score_diff = (base_diff * 0.85) + (style_diff * 0.45)
             prob_profile_a = sigmoid(score_diff * 1.1)
             prob_a, matchup_correction = apply_matchup_correction(prob_model_a, prob_profile_a)
+            uncertainty_factor = compute_uncertainty_factor(profile_a, profile_b)
+            prob_a = 0.5 + ((prob_a - 0.5) * uncertainty_factor)
         else:
             prob_a = prob_model_a
             matchup_correction = 0.0
@@ -722,6 +749,7 @@ def main() -> None:
                 "raw_model_prob_fighterA": round(prob_model_a_raw, 6),
                 "calibrated_model_prob_fighterA": round(prob_model_a, 6),
                 "matchup_correction": round(matchup_correction, 6),
+                "uncertainty_factor": round(uncertainty_factor, 6),
             },
         }
 

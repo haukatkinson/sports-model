@@ -149,27 +149,27 @@ function formatAmericanOdds($odds): string
   return $value > 0 ? '+' . $value : (string)$value;
 }
 
-function getBetTier(float $edgePercent, int $odds): array
+function getBetTier(float $edgePercent, int $odds, float $confidencePercent = 0.0): array
 {
   $isUnderdog = $odds > 0;
 
   if ($isUnderdog) {
-    if ($edgePercent >= 12.0) {
+    if ($edgePercent >= 12.0 && $confidencePercent >= 8.0) {
       return ['label' => 'T1 Live Dog', 'desc' => 'Real underdog value. Worth a sprinkle.', 'class' => 'tier-live'];
     }
-    if ($edgePercent >= 6.0) {
+    if ($edgePercent >= 6.0 && $confidencePercent >= 6.0) {
       return ['label' => 'T2 Puncher\'s Chance', 'desc' => 'Sprinkle only if you love the price.', 'class' => 'tier-punch'];
     }
-    return ['label' => 'T3 Dead Dog', 'desc' => 'Hard pass in all formats.', 'class' => 'tier-dead'];
+    return ['label' => 'T3 Dead Dog', 'desc' => 'Hard pass in all formats (value without confidence).', 'class' => 'tier-dead'];
   }
 
-  if ($edgePercent >= 12.0) {
+  if ($edgePercent >= 12.0 && $confidencePercent >= 8.0) {
     return ['label' => 'T1 Elite Fav', 'desc' => 'Lock it in.', 'class' => 'tier-elite'];
   }
-  if ($edgePercent >= 7.0) {
+  if ($edgePercent >= 7.0 && $confidencePercent >= 6.0) {
     return ['label' => 'T2 Strong Fav', 'desc' => 'High confidence. Solid play.', 'class' => 'tier-strong'];
   }
-  if ($edgePercent >= 3.0) {
+  if ($edgePercent >= 3.0 && $confidencePercent >= 4.0) {
     return ['label' => 'T3 Volatile Fav', 'desc' => 'Playable but proceed with caution.', 'class' => 'tier-volatile'];
   }
   if ($edgePercent >= 0.0) {
@@ -688,7 +688,7 @@ foreach ($fights as &$fight) {
         $fight['recommended_model_probability'] = $recommendA ? $probA : $probB;
         $fight['recommended_implied_probability'] = $recommendA ? $impliedA : $impliedB;
         $fight['recommended_edge'] = $recommendA ? $edgeA : $edgeB;
-        $fight['tier'] = getBetTier($fight['recommended_edge'], $fight['recommended_odds']);
+        $fight['tier'] = getBetTier($fight['recommended_edge'], $fight['recommended_odds'], (float)($fight['confidence'] ?? 0.0));
       }
 
       $predictedWinner = trim((string)($prediction['winner'] ?? ''));
