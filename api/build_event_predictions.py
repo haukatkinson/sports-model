@@ -954,56 +954,46 @@ def build_explanation(
 
 def detect_fight_regime(profile_a: Dict[str, Any], profile_b: Dict[str, Any]) -> tuple[str, str | None]:
     """
-    Classify the dominant fight mode and which side holds the structural edge.
-
-    Regimes:
-    - 'wrestling_control': chain wrestler vs opponent with collapse-zone TDD
-    - 'submission_threat': submission specialist vs poor TDD
-    - 'striking_exchange': power striker vs poor striking defense
-    - 'contested': no clear structural mismatch
+    Classify the dominant fight mode using BOTH threshold signal strength
+    AND a minimum 1.4x dominance edge over opponent in the same path.
 
     Returns (regime, dominant_side) where dominant_side is 'a', 'b', or None.
-    Used to set dominance_mult in logit-space assembly.
     """
-    td_avg_a = float(profile_a.get("td_avg", 0.0) or 0.0)
-    td_avg_b = float(profile_b.get("td_avg", 0.0) or 0.0)
-    td_def_a = float(profile_a.get("td_def", 0.0) or 0.0)
-    td_def_b = float(profile_b.get("td_def", 0.0) or 0.0)
+    td_avg_a  = float(profile_a.get("td_avg",  0.0) or 0.0)
+    td_avg_b  = float(profile_b.get("td_avg",  0.0) or 0.0)
+    td_def_a  = float(profile_a.get("td_def",  0.0) or 0.0)
+    td_def_b  = float(profile_b.get("td_def",  0.0) or 0.0)
     sub_avg_a = float(profile_a.get("sub_avg", 0.0) or 0.0)
     sub_avg_b = float(profile_b.get("sub_avg", 0.0) or 0.0)
     str_def_a = float(profile_a.get("str_def", 0.0) or 0.0)
     str_def_b = float(profile_b.get("str_def", 0.0) or 0.0)
 
-    # Wrestling dominance score: chain volume * TDD vulnerability of opponent
-    wrestle_a = (td_avg_a / 4.5) * tdd_liability(td_def_b)
-    wrestle_b = (td_avg_b / 4.5) * tdd_liability(td_def_a)
+    wrestle_a = (td_avg_a / 3.5) * tdd_liability(td_def_b)
+    wrestle_b = (td_avg_b / 3.5) * tdd_liability(td_def_a)
+    sub_a     = sub_avg_a * tdd_liability(td_def_b)
+    sub_b     = sub_avg_b * tdd_liability(td_def_a)
+    power_a   = compute_power_score(profile_a)
+    power_b   = compute_power_score(profile_b)
+    strike_a  = power_a * str_def_liability(str_def_b)
+    strike_b  = power_b * str_def_liability(str_def_a)
 
-    # Submission dominance: sub threat * opponent's TDD vulnerability
-    sub_a = sub_avg_a * tdd_liability(td_def_b)
-    sub_b = sub_avg_b * tdd_liability(td_def_a)
+    # Require BOTH: absolute threshold AND ≥1.4x edge over opponent
+    EDGE_RATIO    = 1.40
+    WRESTLE_THRESH = 0.22
+    SUB_THRESH     = 0.30
+    STRIKE_THRESH  = 0.22
 
-    # Striking dominance: power * opponent's defense vulnerability
-    power_a = compute_power_score(profile_a)
-    power_b = compute_power_score(profile_b)
-    strike_a = power_a * str_def_liability(str_def_b)
-    strike_b = power_b * str_def_liability(str_def_a)
-
-    WRESTLE_THRESH = 0.18   # lowered: soft wrestling control still triggers regime
-    SUB_THRESH = 0.25        # lowered: partial sub threat still biases fight mode
-    STRIKE_THRESH = 0.18     # lowered: partial striking mismatch still triggers
-    EDGE_RATIO = 1.25        # lowered: 25% edge is enough — not 40%
-
-    if wrestle_a >= WRESTLE_THRESH and wrestle_a > wrestle_b * EDGE_RATIO:
+    if wrestle_a >= WRESTLE_THRESH and wrestle_a >= wrestle_b * EDGE_RATIO:
         return 'wrestling_control', 'a'
-    if wrestle_b >= WRESTLE_THRESH and wrestle_b > wrestle_a * EDGE_RATIO:
+    if wrestle_b >= WRESTLE_THRESH and wrestle_b >= wrestle_a * EDGE_RATIO:
         return 'wrestling_control', 'b'
-    if sub_a >= SUB_THRESH and sub_a > sub_b * EDGE_RATIO:
+    if sub_a >= SUB_THRESH and sub_a >= sub_b * EDGE_RATIO:
         return 'submission_threat', 'a'
-    if sub_b >= SUB_THRESH and sub_b > sub_a * EDGE_RATIO:
+    if sub_b >= SUB_THRESH and sub_b >= sub_a * EDGE_RATIO:
         return 'submission_threat', 'b'
-    if strike_a >= STRIKE_THRESH and strike_a > strike_b * EDGE_RATIO:
+    if strike_a >= STRIKE_THRESH and strike_a >= strike_b * EDGE_RATIO:
         return 'striking_exchange', 'a'
-    if strike_b >= STRIKE_THRESH and strike_b > strike_a * EDGE_RATIO:
+    if strike_b >= STRIKE_THRESH and strike_b >= strike_a * EDGE_RATIO:
         return 'striking_exchange', 'b'
     return 'contested', None
 
@@ -1012,16 +1002,22 @@ def compute_logit_components(
     profile_a: Dict[str, Any],
     profile_b: Dict[str, Any],
     weight_class_name: str,
-) -> tuple[float, float, float, str]:
+) -> tuple[float, float, float, str, str]:
     """
-    Gated dominant-path model.
+    Full gated dominant-path model with hard overrides and regime multipliers.
 
-    Computes three independent fight-path scores (wrestling, striking, submission),
-    selects the one with the highest absolute magnitude as the dominant path,
-    and weights it at 60% of the final logit contribution.  Non-dominant paths
-    contribute at 15% each so they can still shift close fights.
+    Architecture:
+    1. Compute independent fight path scores (wrestling, striking, submission).
+    2. Apply hard overrides to force dominant path when clear mismatch exists.
+    3. Select dominant path and apply regime multiplier to IT ONLY.
+    4. Non-dominant paths contribute a small noise floor (~0.10 each).
 
-    Returns (dominant_path_logit, secondary_logit, dominance_bonus, dominant_path_name).
+    Returns:
+      (dominant_path_logit, secondary_logit, regime_multiplier,
+       dominant_path_name, regime)
+    The caller assembles:
+      final_logit = base_logit + regime_multiplier * dominant_path_logit
+                    + secondary_logit + age_adjust
     """
     slpm_a    = float(profile_a.get("slpm",    0.0) or 0.0)
     slpm_b    = float(profile_b.get("slpm",    0.0) or 0.0)
@@ -1040,75 +1036,116 @@ def compute_logit_components(
 
     tdd_lib_a = tdd_liability(td_def_a)
     tdd_lib_b = tdd_liability(td_def_b)
+    power_a   = compute_power_score(profile_a)
+    power_b   = compute_power_score(profile_b)
 
     # -----------------------------------------------------------------------
-    # PATH 1 — Wrestling domination
-    # Metric: how decisively can A take down and hold B, vs B doing the same.
-    # tdd_vuln captures raw defensive hole; td_vol captures offensive volume.
+    # PATH 1 — Wrestling control
+    # Score = (TD volume * opponent TDD vulnerability) differential.
+    # Scaled so max realistic edge (~0.90 one-sided) maps to tanh ≈ 0.98.
     # -----------------------------------------------------------------------
-    tdd_vuln_a = max(0.0, 1.0 - td_def_a / 100.0)   # how stoppable A is
-    tdd_vuln_b = max(0.0, 1.0 - td_def_b / 100.0)   # how stoppable B is
-    td_vol_a   = min(1.0, td_avg_a / 3.5)            # normalized TD output
-    td_vol_b   = min(1.0, td_avg_b / 3.5)
-    w_dom_a    = td_vol_a * tdd_vuln_b                # A wrestling B
-    w_dom_b    = td_vol_b * tdd_vuln_a                # B wrestling A
-    wrestling_path = math.tanh((w_dom_a - w_dom_b) * 2.5) * 1.3
+    td_vol_a  = min(1.0, td_avg_a / 3.5)
+    td_vol_b  = min(1.0, td_avg_b / 3.5)
+    tdd_vuln_a = max(0.0, 1.0 - td_def_a / 100.0)
+    tdd_vuln_b = max(0.0, 1.0 - td_def_b / 100.0)
+    w_dom_a   = td_vol_a * tdd_vuln_b
+    w_dom_b   = td_vol_b * tdd_vuln_a
+    wrestling_path = math.tanh((w_dom_a - w_dom_b) * 2.5) * 0.85
 
     # -----------------------------------------------------------------------
     # PATH 2 — Striking exchange
-    # Metric: net striking output / damage differential.
+    # Score = net striking efficiency + power + defense + absorption.
     # -----------------------------------------------------------------------
-    slpm_edge   = (slpm_a - slpm_b) * 0.18
-    def_edge    = ((str_def_a - str_def_b) / 100.0) * 0.30
-    absorb_edge = (sapm_b - sapm_a) * 0.12
+    slpm_edge   = (slpm_a - slpm_b) * 0.20
+    def_edge    = ((str_def_a - str_def_b) / 100.0) * 0.35
+    absorb_edge = (sapm_b - sapm_a) * 0.14
+    power_edge  = (power_a - power_b) * 0.50
     reach_diff  = (reach_a - reach_b) / 10.0
-    reach_bonus = reach_diff * max(0.0, (slpm_edge + def_edge) * 0.15)
-    striking_raw  = slpm_edge + def_edge + absorb_edge + reach_bonus
-    striking_path = math.tanh(striking_raw * 2.0) * 1.3
+    reach_bonus = reach_diff * max(0.0, (slpm_edge + def_edge) * 0.12)
+    striking_raw  = slpm_edge + def_edge + absorb_edge + power_edge + reach_bonus
+    striking_path = math.tanh(striking_raw * 2.0) * 0.85
 
     # -----------------------------------------------------------------------
     # PATH 3 — Submission threat
-    # Metric: sub avg scaled by how often A can actually get there (TDD hole).
+    # Score = sub avg conditioned on TDD vulnerability (position access)
+    # and grappling transition efficiency.
     # -----------------------------------------------------------------------
-    sub_threat_a  = sub_avg_a * tdd_lib_b
-    sub_threat_b  = sub_avg_b * tdd_lib_a
-    sub_path      = math.tanh((sub_threat_a - sub_threat_b) * 2.0) * 1.0
+    sub_threat_a = sub_avg_a * tdd_lib_b * (1.0 + td_vol_a * 0.5)
+    sub_threat_b = sub_avg_b * tdd_lib_a * (1.0 + td_vol_b * 0.5)
+    sub_path     = math.tanh((sub_threat_a - sub_threat_b) * 2.0) * 0.70
 
     # -----------------------------------------------------------------------
-    # Gate: select dominant path, blend the rest as secondary noise
+    # HARD OVERRIDES — force dominant path on clear structural mismatches
+    # These bypass the max() selection when a decisive physical mismatch exists.
+    # -----------------------------------------------------------------------
+    forced_path: str | None = None
+
+    # Wrestling override: elite volume + opponent can't stop takedowns
+    if td_avg_a > 3.5 and td_def_b < 55.0:
+        forced_path = 'wrestling'
+    elif td_avg_b > 3.5 and td_def_a < 55.0:
+        forced_path = 'wrestling'
+
+    # KO override: heavy power vs weak chin
+    if forced_path is None:
+        if power_a > 0.65 and str_def_b < 45.0:
+            forced_path = 'striking'
+        elif power_b > 0.65 and str_def_a < 45.0:
+            forced_path = 'striking'
+
+    # Submission override: elite sub threat vs poor TDD
+    if forced_path is None:
+        if sub_avg_a > 1.5 and td_def_b < 50.0:
+            forced_path = 'submission'
+        elif sub_avg_b > 1.5 and td_def_a < 50.0:
+            forced_path = 'submission'
+
+    # -----------------------------------------------------------------------
+    # Gate: select dominant path
     # -----------------------------------------------------------------------
     path_scores: Dict[str, float] = {
-        'wrestling':   wrestling_path,
-        'striking':    striking_path,
-        'submission':  sub_path,
+        'wrestling':  wrestling_path,
+        'striking':   striking_path,
+        'submission': sub_path,
     }
-    dominant_path_name = max(path_scores, key=lambda k: abs(path_scores[k]))
+
+    if forced_path is not None:
+        dominant_path_name = forced_path
+    else:
+        dominant_path_name = max(path_scores, key=lambda k: abs(path_scores[k]))
+
     dominant_path_logit = path_scores[dominant_path_name]
+    # Non-dominant paths: small noise floor, not a meaningful second vote
     secondary_logit = sum(
-        v for k, v in path_scores.items() if k != dominant_path_name
-    ) * 0.15
+        v * 0.10 for k, v in path_scores.items() if k != dominant_path_name
+    )
 
     # -----------------------------------------------------------------------
-    # Regime-based dominance bonus (additive, log-space)
+    # Regime classification → multiplier applied ONLY to dominant path
+    # Multiplier strength scales with signal magnitude (avoid small-edge amplification)
     # -----------------------------------------------------------------------
-    regime, dominant = detect_fight_regime(profile_a, profile_b)
+    regime, dominant_side = detect_fight_regime(profile_a, profile_b)
+    dom_abs = abs(dominant_path_logit)
+
     if regime == 'wrestling_control':
-        dominance_mult = 1.35
+        # 1.25 baseline, scales up to 1.40 for clear dominance edges
+        regime_multiplier = 1.25 + min(0.15, dom_abs * 0.18)
     elif regime == 'submission_threat':
-        dominance_mult = 1.30
+        regime_multiplier = 1.20 + min(0.12, dom_abs * 0.15)
     elif regime == 'striking_exchange':
-        dominance_mult = 1.22
+        regime_multiplier = 1.15 + min(0.10, dom_abs * 0.12)
     else:
-        dominance_mult = 1.0
+        regime_multiplier = 1.00 + min(0.08, dom_abs * 0.06)
 
-    if dominant == 'a':
-        dominance_bonus = math.log(dominance_mult) * 0.6
-    elif dominant == 'b':
-        dominance_bonus = -math.log(dominance_mult) * 0.6
-    else:
-        dominance_bonus = 0.0
+    # Flip multiplier direction if regime dominant is B
+    # (dominant_path_logit already carries sign, multiplier must preserve it)
+    if dominant_side == 'b' and dominant_path_logit > 0:
+        # Regime says B dominates but path score favors A — contested effectively
+        regime_multiplier = 1.0
+    if dominant_side == 'a' and dominant_path_logit < 0:
+        regime_multiplier = 1.0
 
-    return dominant_path_logit, secondary_logit, dominance_bonus, dominant_path_name
+    return dominant_path_logit, secondary_logit, regime_multiplier, dominant_path_name, regime
 
 
 def calibrate_probability(probability: float) -> float:
@@ -1253,8 +1290,8 @@ def main() -> None:
             logit_base = math.tanh(base_logit_raw * 0.6) * 1.2
             logit_base *= 0.55
 
-            # Gated dominant-path logit components
-            dominant_path_logit, secondary_logit, dominance_bonus, dominant_path_name = compute_logit_components(
+            # Gated dominant-path logit components + regime multiplier
+            dominant_path_logit, secondary_logit, regime_multiplier, dominant_path_name, dominant_regime = compute_logit_components(
                 profile_a, profile_b, weight_class_name
             )
 
@@ -1270,20 +1307,16 @@ def main() -> None:
                 elif age_b >= 37 and age_a <= 33 and (-age_gap) >= 5:
                     age_adjust_logit = 0.35 if heavier else 0.55
 
-            # Uncertainty in logit space — dampens logit magnitude, not probability
+            # Uncertainty dampens the full logit magnitude
             uncertainty_factor = compute_uncertainty_factor(profile_a, profile_b, weight_class_name)
 
-            # Gated assembly: base anchors direction, dominant path drives magnitude
-            # base * 0.4 keeps ML signal relevant without dominating
-            # dominant * 0.6 lets the fight identity express itself
-            logit_components = dominant_path_logit + secondary_logit + age_adjust_logit
-            logit_p = (
-                logit_base * 0.4
-                + dominant_path_logit * 0.6
-                + secondary_logit
-                + dominance_bonus
-                + age_adjust_logit
-            ) * uncertainty_factor
+            # Final assembly:
+            #   base_logit   = ML model direction (bounded)
+            #   regime_mult * dominant_path = fight identity drives magnitude
+            #   secondary    = noise floor from non-dominant paths
+            #   age_adjust   = experience/age penalty
+            logit_components = regime_multiplier * dominant_path_logit + secondary_logit + age_adjust_logit
+            logit_p = (logit_base + logit_components) * uncertainty_factor
 
             prob_a = sigmoid(logit_p)
             prob_profile_a = sigmoid(logit_components)  # for explanation layer only
