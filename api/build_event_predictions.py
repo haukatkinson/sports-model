@@ -1012,12 +1012,12 @@ def compute_logit_components(
     profile_a: Dict[str, Any],
     profile_b: Dict[str, Any],
     weight_class_name: str,
-) -> tuple[float, float, float, float]:
+) -> tuple[float, float, float, float, float]:
     """
     Compute structurally-separated logit adjustments for logit-space final assembly.
 
-    Returns (striking_logit, grappling_logit, sub_logit, dominance_mult).
-    All logit values are added to logit(p_model); dominance_mult scales the sum.
+    Returns (striking_logit, grappling_logit, sub_logit, interaction_logit, dominance_bonus).
+    All logit values are additive in logit space, including dominance via log(mult).
 
     Fixes:
     - No single linear container — each fight dimension is independent
@@ -1039,17 +1039,16 @@ def compute_logit_components(
     reach_a   = float(profile_a.get("reach_cm", 175.0) or 175.0)
     reach_b   = float(profile_b.get("reach_cm", 175.0) or 175.0)
 
-    # --- Striking logit ---
-    # Each unit of SLpM edge ≈ 0.18 logit. StrDef edge ≈ 0.30 logit per 1.0 diff.
+    # --- Striking logit (bounded contribution) ---
     slpm_edge = (slpm_a - slpm_b) * 0.18
     def_edge  = ((str_def_a - str_def_b) / 100.0) * 0.30
     absorb_edge = (sapm_b - sapm_a) * 0.12
     reach_diff = (reach_a - reach_b) / 10.0
-    # Reach bonus only matters when there's already a striking edge
     reach_bonus = reach_diff * max(0.0, (slpm_edge + def_edge) * 0.15)
-    striking_logit = slpm_edge + def_edge + absorb_edge + reach_bonus
+    striking_raw = slpm_edge + def_edge + absorb_edge + reach_bonus
+    striking_logit = math.tanh(striking_raw) * 0.8
 
-    # --- Grappling logit (effective pressure differential) ---
+    # --- Grappling logit (saturated blend of correlated signals) ---
     tdd_lib_a = tdd_liability(td_def_a)
     tdd_lib_b = tdd_liability(td_def_b)
     anti_w_a  = compute_anti_wrestling_score(profile_a)
@@ -1062,39 +1061,47 @@ def compute_logit_components(
     p_initiate_b = 1.0 - (1.0 - p_chain_b) * (1.0 - entry_b * 0.15)
     p_control_b  = tdd_lib_b * (1.0 - anti_w_b * 0.45)
     p_control_a  = tdd_lib_a * (1.0 - anti_w_a * 0.45)
-    eff_a_vs_b = max(0.05, 1.0 - (1.0 - p_initiate_a) * (1.0 - p_control_b * p_chain_a))
-    eff_b_vs_a = max(0.05, 1.0 - (1.0 - p_initiate_b) * (1.0 - p_control_a * p_chain_b))
-    # Pressure differential → logit. Full 0-to-1 range maps to ~1.20 logit swing.
-    grappling_logit = (eff_a_vs_b - eff_b_vs_a) * 1.20
+    td_pressure_a = p_initiate_a * p_chain_a
+    td_pressure_b = p_initiate_b * p_chain_b
+    control_proxy_a = p_control_b * p_chain_a
+    control_proxy_b = p_control_a * p_chain_b
+    sub_pressure_a = min(1.0, (sub_avg_a / 2.0) * tdd_lib_b)
+    sub_pressure_b = min(1.0, (sub_avg_b / 2.0) * tdd_lib_a)
+    grappling_core_a = (0.5 * td_pressure_a) + (0.3 * control_proxy_a) + (0.2 * sub_pressure_a)
+    grappling_core_b = (0.5 * td_pressure_b) + (0.3 * control_proxy_b) + (0.2 * sub_pressure_b)
+    grappling_raw = (grappling_core_a - grappling_core_b) * 1.2
+    grappling_logit = math.tanh(grappling_raw) * 0.9
 
-    # --- Submission logit ---
-    # Sub threat conditioned on whether opponent can even be brought down
+    # --- Submission logit (bounded contribution) ---
     sub_threat_a = sub_avg_a * tdd_lib_b   # more dangerous vs bad TDD
     sub_threat_b = sub_avg_b * tdd_lib_a
-    sub_logit = (sub_threat_a - sub_threat_b) * 0.30
+    sub_raw = (sub_threat_a - sub_threat_b) * 0.30
+    sub_logit = math.tanh(sub_raw) * 0.4
 
-    # --- Interaction term (conditional explosion) ---
-    # Power striker vs bad defense vs bad TDD = multiplicative collapse, not additive
-    # This is the single highest-impact missing term.
+    # --- Interaction term ---
     interaction_a = compute_power_score(profile_a) * str_def_liability(str_def_b) * tdd_lib_b
     interaction_b = compute_power_score(profile_b) * str_def_liability(str_def_a) * tdd_lib_a
     interaction_logit = (interaction_a - interaction_b) * 1.5
 
-    # --- Regime-based dominance multiplier ---
-    # Non-contested fights should naturally produce wider separation.
-    # Multiplying the full logit (model + components) compresses contested fights
-    # and expands dominant ones — mathematically correct via logit curve shape.
+    # --- Regime-based dominance bonus (additive in logit space) ---
     regime, dominant = detect_fight_regime(profile_a, profile_b)
     if regime == 'wrestling_control':
-        dominance_mult = 1.90
+        dominance_mult = 1.35
     elif regime == 'submission_threat':
-        dominance_mult = 1.80
+        dominance_mult = 1.30
     elif regime == 'striking_exchange':
-        dominance_mult = 1.55
+        dominance_mult = 1.22
     else:  # contested
-        dominance_mult = 1.05
+        dominance_mult = 1.0
 
-    return striking_logit, grappling_logit, sub_logit, interaction_logit, dominance_mult
+    if dominant == 'a':
+        dominance_bonus = math.log(dominance_mult)
+    elif dominant == 'b':
+        dominance_bonus = -math.log(dominance_mult)
+    else:
+        dominance_bonus = 0.0
+
+    return striking_logit, grappling_logit, sub_logit, interaction_logit, dominance_bonus
 
 
 def calibrate_probability(probability: float) -> float:
@@ -1233,15 +1240,13 @@ def main() -> None:
             # -----------------------------------------------------------------
             # Logit-space assembly (Phase 2 — pure logit, no p-space blending)
             # -----------------------------------------------------------------
-            # Work directly from raw model logit — no p-space calibration shrinkage.
-            # ML model (logistic regression) outputs are already logit-calibrated.
-            # A mild 0.85 scale accounts for model overconfidence without
-            # collapsing variance the way ((p-0.5)*0.6)+0.5 did in p-space.
+            # Work directly from raw model logit with bounded influence.
             prob_model_a_raw_clamped = max(0.01, min(0.99, prob_model_a_raw))
-            logit_base = math.log(prob_model_a_raw_clamped / (1.0 - prob_model_a_raw_clamped)) * 0.85
+            base_logit_raw = math.log(prob_model_a_raw_clamped / (1.0 - prob_model_a_raw_clamped))
+            logit_base = math.tanh(base_logit_raw * 0.6) * 1.2
 
-            # Get structurally-separated logit components + interaction term
-            striking_logit, grappling_logit, sub_logit, interaction_logit, dominance_mult = compute_logit_components(
+            # Get structurally-separated logit components + additive dominance bonus
+            striking_logit, grappling_logit, sub_logit, interaction_logit, dominance_bonus = compute_logit_components(
                 profile_a, profile_b, weight_class_name
             )
 
@@ -1262,7 +1267,7 @@ def main() -> None:
 
             # Assemble all in logit space: one sigmoid at the very end
             logit_components = striking_logit + grappling_logit + sub_logit + interaction_logit + age_adjust_logit
-            logit_p = (logit_base + logit_components) * dominance_mult * uncertainty_factor
+            logit_p = (logit_base + logit_components + dominance_bonus) * uncertainty_factor
 
             prob_a = sigmoid(logit_p)
             prob_profile_a = sigmoid(logit_components)  # for explanation layer only
