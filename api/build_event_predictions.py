@@ -452,47 +452,88 @@ def compute_control_proxy(profile: Dict[str, Any]) -> float:
     """
     Estimate control time tendency from available stats.
     Higher = more grindy, control-oriented fighter.
+
+    Uses tanh soft saturation to prevent artificial max-out.
+    Previously: linear min(1.0, ...) caused Tuco to hit 1.000 (maxed).
+    Now: tanh smoothly asymptotes — extreme wrestlers get ~0.95, not 1.00.
+    Formula: tanh(td_avg*0.6 + sub_avg*0.3 + wrestling_tendency*0.4)
     """
     wins = int(profile.get("wins", 0) or 0)
     losses = int(profile.get("losses", 0) or 0)
     draws = int(profile.get("draws", 0) or 0)
     total = wins + losses + draws
-    
+
     if total == 0:
         return 0.0
-    
+
     td_avg = float(profile.get("td_avg", 0.0) or 0.0)
     sub_avg = float(profile.get("sub_avg", 0.0) or 0.0)
-    decision_rate = 0.5
-    
-    control_proxy = (td_avg * 0.6) + (sub_avg * 0.25) + (decision_rate * 0.15)
-    return min(1.0, control_proxy)
+    td_def = float(profile.get("td_def", 0.0) or 0.0)
+
+    wrestling_tendency = max(0.0, 1.0 - (td_def / 100.0))
+
+    raw = (td_avg * 0.6) + (sub_avg * 0.3) + (wrestling_tendency * 0.4)
+    return math.tanh(raw)
 
 
 def compute_anti_wrestling_score(profile: Dict[str, Any]) -> float:
     """
-    Estimate fighter's ability to avoid/escape control.
-    High = hard to hold down, even if TDD % is mediocre.
-    Accounts for: TD Def, striking output, scramble proxy, sub threat off back.
-    Prevents model from overrating wrestlers who face naturally evasive opponents.
-    Examples: Dynamic strikers with poor TDD but high sub threat (Oliveira) score high.
+    Estimate fighter's defensive wrestling ability — ability to avoid/escape control.
+    DIRECTION: Higher = BETTER defense (harder to hold down).
+
+    Components:
+    - TD Def %: primary raw defense signal (50%)
+    - SLpM: offensive output discourages control attempts (25%)
+    - Sub threat off back: submission threat reduces opponent's top control safety (25%)
+
+    Examples:
+    - Oliveira (poor TDD but high sub avg + output): scores HIGH = correctly identified as hard to hold
+    - Pure grappling dummy (low TDD, low output, no sub threat): scores LOW = correctly vulnerable
     """
     td_def = float(profile.get("td_def", 0.0) or 0.0)
     slpm = float(profile.get("slpm", 0.0) or 0.0)
     sub_avg = float(profile.get("sub_avg", 0.0) or 0.0)
-    
+
     td_def_normalized = min(1.0, td_def / 80.0)
     slpm_normalized = min(1.0, slpm / 6.0)
     sub_threat = min(1.0, sub_avg / 1.5)
-    
-    anti_wrestling_components = [
+
+    components = [
         td_def_normalized * 0.50,
         slpm_normalized * 0.25,
-        sub_threat * 0.25
+        sub_threat * 0.25,
     ]
-    
-    anti_wrestling = sum(anti_wrestling_components)
-    return min(1.0, anti_wrestling)
+
+    return min(1.0, sum(components))
+
+
+def compute_wrestling_entry_factor(attacker: Dict[str, Any], defender: Dict[str, Any]) -> float:
+    """
+    Estimate how effectively an attacker can actually GET takedowns against a specific defender.
+    Adjusts raw TD Avg downward when defender creates distance control problems.
+
+    Factors that reduce entry success:
+    - Defender's striking threat (SLpM) — punishes bad entries
+    - Defender's reach advantage — longer reach = harder clinch access
+    - Defender's striking defense — clean exchanges discourage shooting
+
+    Returns a multiplier 0.5–1.0 applied to attacker's effective TD threat.
+    1.0 = no entry resistance, 0.5 = heavily resisted entries.
+    """
+    defender_slpm = float(defender.get("slpm", 0.0) or 0.0)
+    defender_str_def = float(defender.get("str_def", 0.0) or 0.0)
+
+    attacker_reach = float(attacker.get("reach_cm", 175.0) or 175.0)
+    defender_reach = float(defender.get("reach_cm", 175.0) or 175.0)
+    reach_gap = max(0.0, defender_reach - attacker_reach)
+
+    striking_threat = min(1.0, defender_slpm / 6.0)
+    defense_quality = min(1.0, defender_str_def / 65.0)
+    reach_penalty = min(0.25, reach_gap / 80.0)
+
+    entry_resistance = (striking_threat * 0.45) + (defense_quality * 0.35) + (reach_penalty * 0.20)
+
+    return max(0.5, 1.0 - (entry_resistance * 0.5))
 
 
 def detect_fragility_flags(profile: Dict[str, Any], opponent_profile: Dict[str, Any] | None = None) -> tuple[bool, float]:
@@ -620,63 +661,66 @@ def matchup_score(profile_a: Dict[str, Any], profile_b: Dict[str, Any], weight_c
     
     tdd_liability_a = tdd_liability(td_def_a)
     tdd_liability_b = tdd_liability(td_def_b)
-    
+
     str_def_liability_a = str_def_liability(str_def_a)
     str_def_liability_b = str_def_liability(str_def_b)
-    
+
     power_score_a = compute_power_score(profile_a)
     power_score_b = compute_power_score(profile_b)
-    
+
     finisher_score_a = compute_finisher_score(profile_a)
     finisher_score_b = compute_finisher_score(profile_b)
-    
+
     anti_wrestling_a = compute_anti_wrestling_score(profile_a)
     anti_wrestling_b = compute_anti_wrestling_score(profile_b)
-    
+
+    # Chain wrestling factor: how often does attacker actually chain TDs?
+    # Conditions tdd_liability — 33% TDD only catastrophic vs real chain wrestlers
+    chain_factor_a = min(1.0, td_avg_a / 3.5)
+    chain_factor_b = min(1.0, td_avg_b / 3.5)
+
+    # Entry success rate: how effectively can attacker close and shoot vs this specific defender?
+    entry_factor_a = compute_wrestling_entry_factor(profile_a, profile_b)
+    entry_factor_b = compute_wrestling_entry_factor(profile_b, profile_a)
+
+    # Effective TDD pressure: raw liability * whether attacker is actually a chain wrestler
+    # Anti-wrestling dampens further — hard to hold down fighters reduce realized pressure
+    effective_tdd_pressure_b_vs_a = tdd_liability_b * chain_factor_a * entry_factor_a * (1.0 - anti_wrestling_b * 0.35)
+    effective_tdd_pressure_a_vs_b = tdd_liability_a * chain_factor_b * entry_factor_b * (1.0 - anti_wrestling_a * 0.35)
+
     if td_avg_a > 4.0 and td_def_b < 55.0:
-        wrestler_path_bonus_a = 0.50 * tdd_liability_b
-        raw_bonus += wrestler_path_bonus_a
+        raw_bonus += 0.50 * effective_tdd_pressure_b_vs_a
     elif td_avg_a > 3.0 and td_def_b < 65.0:
-        wrestler_path_bonus_a = 0.30 * tdd_liability_b
-        raw_bonus += wrestler_path_bonus_a
-    
+        raw_bonus += 0.30 * effective_tdd_pressure_b_vs_a
+
     if td_avg_b > 4.0 and td_def_a < 55.0:
-        wrestler_path_bonus_b = 0.50 * tdd_liability_a
-        raw_bonus -= wrestler_path_bonus_b
+        raw_bonus -= 0.50 * effective_tdd_pressure_a_vs_b
     elif td_avg_b > 3.0 and td_def_a < 65.0:
-        wrestler_path_bonus_b = 0.30 * tdd_liability_a
-        raw_bonus -= wrestler_path_bonus_b
-    
+        raw_bonus -= 0.30 * effective_tdd_pressure_a_vs_b
+
     if sub_avg_a > 1.0 and td_def_b < 60.0:
-        submission_bonus_a = 0.35 * tdd_liability_b
-        raw_bonus += submission_bonus_a
-    
+        raw_bonus += 0.35 * effective_tdd_pressure_b_vs_a
+
     if sub_avg_b > 1.0 and td_def_a < 60.0:
-        submission_bonus_b = 0.35 * tdd_liability_a
-        raw_bonus -= submission_bonus_b
-    
+        raw_bonus -= 0.35 * effective_tdd_pressure_a_vs_b
+
     if power_score_a > 0.70 and str_def_b < 45.0:
-        striker_punishment_a = 0.45 * str_def_liability_b
-        raw_bonus += striker_punishment_a
+        raw_bonus += 0.45 * str_def_liability_b
         if sapm_b > 5.5:
             raw_bonus += 0.15 * str_def_liability_b
     elif power_score_a > 0.60 and str_def_b < 50.0:
-        striker_punishment_a = 0.25 * str_def_liability_b
-        raw_bonus += striker_punishment_a
-    
+        raw_bonus += 0.25 * str_def_liability_b
+
     if power_score_b > 0.70 and str_def_a < 45.0:
-        striker_punishment_b = 0.45 * str_def_liability_a
-        raw_bonus -= striker_punishment_b
+        raw_bonus -= 0.45 * str_def_liability_a
         if sapm_a > 5.5:
             raw_bonus -= 0.15 * str_def_liability_a
     elif power_score_b > 0.60 and str_def_a < 50.0:
-        striker_punishment_b = 0.25 * str_def_liability_a
-        raw_bonus -= striker_punishment_b
-    
-    anti_wrestling_dampening_a = (1.0 - anti_wrestling_b) * 0.08
-    anti_wrestling_dampening_b = (1.0 - anti_wrestling_a) * 0.08
-    raw_bonus += (anti_wrestling_dampening_a - anti_wrestling_dampening_b)
-    
+        raw_bonus -= 0.25 * str_def_liability_a
+
+    # Anti-wrestling global dampening — symmetric directional signal
+    raw_bonus += ((1.0 - anti_wrestling_b) - (1.0 - anti_wrestling_a)) * 0.06
+
     matchup_bonus = apply_diminishing_returns(raw_bonus, compression_factor=0.8)
 
     age_adjust = 0.0
