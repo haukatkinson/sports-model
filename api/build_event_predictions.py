@@ -385,19 +385,19 @@ def apply_diminishing_returns(raw_bonus: float, compression_factor: float = 0.8)
 def tdd_liability(td_def: float) -> float:
     """
     Nonlinear TDD vulnerability scaling.
-    Sharp penalty for poor TD defense (below 60%).
-    Elite TDD (80%+) gets minimal penalty.
+    80%+ = essentially immune. Below 50% = catastrophic collapse zone.
+    Sharper thresholds than before — regime collapse, not smooth scaling.
     """
     if td_def >= 80.0:
-        return 0.05
+        return 0.02   # immune — elite TDD walls off wrestling completely
     elif td_def >= 70.0:
-        return 0.15
+        return 0.10
     elif td_def >= 60.0:
-        return 0.35
+        return 0.30
     elif td_def >= 50.0:
-        return 0.60
+        return 0.65
     else:
-        return 0.90
+        return 0.95   # catastrophic — gets controlled every single fight
 
 
 def str_def_liability(str_def: float) -> float:
@@ -952,6 +952,144 @@ def build_explanation(
     }
 
 
+def detect_fight_regime(profile_a: Dict[str, Any], profile_b: Dict[str, Any]) -> tuple[str, str | None]:
+    """
+    Classify the dominant fight mode and which side holds the structural edge.
+
+    Regimes:
+    - 'wrestling_control': chain wrestler vs opponent with collapse-zone TDD
+    - 'submission_threat': submission specialist vs poor TDD
+    - 'striking_exchange': power striker vs poor striking defense
+    - 'contested': no clear structural mismatch
+
+    Returns (regime, dominant_side) where dominant_side is 'a', 'b', or None.
+    Used to set dominance_mult in logit-space assembly.
+    """
+    td_avg_a = float(profile_a.get("td_avg", 0.0) or 0.0)
+    td_avg_b = float(profile_b.get("td_avg", 0.0) or 0.0)
+    td_def_a = float(profile_a.get("td_def", 0.0) or 0.0)
+    td_def_b = float(profile_b.get("td_def", 0.0) or 0.0)
+    sub_avg_a = float(profile_a.get("sub_avg", 0.0) or 0.0)
+    sub_avg_b = float(profile_b.get("sub_avg", 0.0) or 0.0)
+    str_def_a = float(profile_a.get("str_def", 0.0) or 0.0)
+    str_def_b = float(profile_b.get("str_def", 0.0) or 0.0)
+
+    # Wrestling dominance score: chain volume * TDD vulnerability of opponent
+    wrestle_a = (td_avg_a / 4.5) * tdd_liability(td_def_b)
+    wrestle_b = (td_avg_b / 4.5) * tdd_liability(td_def_a)
+
+    # Submission dominance: sub threat * opponent's TDD vulnerability
+    sub_a = sub_avg_a * tdd_liability(td_def_b)
+    sub_b = sub_avg_b * tdd_liability(td_def_a)
+
+    # Striking dominance: power * opponent's defense vulnerability
+    power_a = compute_power_score(profile_a)
+    power_b = compute_power_score(profile_b)
+    strike_a = power_a * str_def_liability(str_def_b)
+    strike_b = power_b * str_def_liability(str_def_a)
+
+    WRESTLE_THRESH = 0.30
+    SUB_THRESH = 0.40
+    STRIKE_THRESH = 0.28
+    EDGE_RATIO = 1.4  # must be 40% stronger than opponent's same-regime score
+
+    if wrestle_a >= WRESTLE_THRESH and wrestle_a > wrestle_b * EDGE_RATIO:
+        return 'wrestling_control', 'a'
+    if wrestle_b >= WRESTLE_THRESH and wrestle_b > wrestle_a * EDGE_RATIO:
+        return 'wrestling_control', 'b'
+    if sub_a >= SUB_THRESH and sub_a > sub_b * EDGE_RATIO:
+        return 'submission_threat', 'a'
+    if sub_b >= SUB_THRESH and sub_b > sub_a * EDGE_RATIO:
+        return 'submission_threat', 'b'
+    if strike_a >= STRIKE_THRESH and strike_a > strike_b * EDGE_RATIO:
+        return 'striking_exchange', 'a'
+    if strike_b >= STRIKE_THRESH and strike_b > strike_a * EDGE_RATIO:
+        return 'striking_exchange', 'b'
+    return 'contested', None
+
+
+def compute_logit_components(
+    profile_a: Dict[str, Any],
+    profile_b: Dict[str, Any],
+    weight_class_name: str,
+) -> tuple[float, float, float, float]:
+    """
+    Compute structurally-separated logit adjustments for logit-space final assembly.
+
+    Returns (striking_logit, grappling_logit, sub_logit, dominance_mult).
+    All logit values are added to logit(p_model); dominance_mult scales the sum.
+
+    Fixes:
+    - No single linear container — each fight dimension is independent
+    - dominance_mult > 1.0 expands separation when a structural mismatch exists
+    - Natural curve behavior: MMA fights can collapse into one dominant mode
+    """
+    slpm_a  = float(profile_a.get("slpm",  0.0) or 0.0)
+    slpm_b  = float(profile_b.get("slpm",  0.0) or 0.0)
+    sapm_a  = float(profile_a.get("sapm",  0.0) or 0.0)
+    sapm_b  = float(profile_b.get("sapm",  0.0) or 0.0)
+    str_def_a = float(profile_a.get("str_def", 0.0) or 0.0)
+    str_def_b = float(profile_b.get("str_def", 0.0) or 0.0)
+    td_avg_a  = float(profile_a.get("td_avg",  0.0) or 0.0)
+    td_avg_b  = float(profile_b.get("td_avg",  0.0) or 0.0)
+    sub_avg_a = float(profile_a.get("sub_avg", 0.0) or 0.0)
+    sub_avg_b = float(profile_b.get("sub_avg", 0.0) or 0.0)
+    td_def_a  = float(profile_a.get("td_def",  0.0) or 0.0)
+    td_def_b  = float(profile_b.get("td_def",  0.0) or 0.0)
+    reach_a   = float(profile_a.get("reach_cm", 175.0) or 175.0)
+    reach_b   = float(profile_b.get("reach_cm", 175.0) or 175.0)
+
+    # --- Striking logit ---
+    # Each unit of SLpM edge ≈ 0.18 logit. StrDef edge ≈ 0.30 logit per 1.0 diff.
+    slpm_edge = (slpm_a - slpm_b) * 0.18
+    def_edge  = ((str_def_a - str_def_b) / 100.0) * 0.30
+    absorb_edge = (sapm_b - sapm_a) * 0.12
+    reach_diff = (reach_a - reach_b) / 10.0
+    # Reach bonus only matters when there's already a striking edge
+    reach_bonus = reach_diff * max(0.0, (slpm_edge + def_edge) * 0.15)
+    striking_logit = slpm_edge + def_edge + absorb_edge + reach_bonus
+
+    # --- Grappling logit (effective pressure differential) ---
+    tdd_lib_a = tdd_liability(td_def_a)
+    tdd_lib_b = tdd_liability(td_def_b)
+    anti_w_a  = compute_anti_wrestling_score(profile_a)
+    anti_w_b  = compute_anti_wrestling_score(profile_b)
+    entry_a   = compute_wrestling_entry_factor(profile_a, profile_b)
+    entry_b   = compute_wrestling_entry_factor(profile_b, profile_a)
+    p_chain_a = min(1.0, td_avg_a / 4.5)
+    p_chain_b = min(1.0, td_avg_b / 4.5)
+    p_initiate_a = 1.0 - (1.0 - p_chain_a) * (1.0 - entry_a * 0.15)
+    p_initiate_b = 1.0 - (1.0 - p_chain_b) * (1.0 - entry_b * 0.15)
+    p_control_b  = tdd_lib_b * (1.0 - anti_w_b * 0.45)
+    p_control_a  = tdd_lib_a * (1.0 - anti_w_a * 0.45)
+    eff_a_vs_b = max(0.05, 1.0 - (1.0 - p_initiate_a) * (1.0 - p_control_b * p_chain_a))
+    eff_b_vs_a = max(0.05, 1.0 - (1.0 - p_initiate_b) * (1.0 - p_control_a * p_chain_b))
+    # Pressure differential → logit. Full 0-to-1 range maps to ~1.20 logit swing.
+    grappling_logit = (eff_a_vs_b - eff_b_vs_a) * 1.20
+
+    # --- Submission logit ---
+    # Sub threat conditioned on whether opponent can even be brought down
+    sub_threat_a = sub_avg_a * tdd_lib_b   # more dangerous vs bad TDD
+    sub_threat_b = sub_avg_b * tdd_lib_a
+    sub_logit = (sub_threat_a - sub_threat_b) * 0.30
+
+    # --- Regime-based dominance multiplier ---
+    # Non-contested fights should naturally produce wider separation.
+    # Multiplying the full logit (model + components) compresses contested fights
+    # and expands dominant ones — mathematically correct via logit curve shape.
+    regime, dominant = detect_fight_regime(profile_a, profile_b)
+    if regime == 'wrestling_control':
+        dominance_mult = 1.45
+    elif regime == 'submission_threat':
+        dominance_mult = 1.35
+    elif regime == 'striking_exchange':
+        dominance_mult = 1.30
+    else:  # contested
+        dominance_mult = 1.05
+
+    return striking_logit, grappling_logit, sub_logit, dominance_mult
+
+
 def calibrate_probability(probability: float) -> float:
     return max(0.01, min(0.99, ((probability - 0.5) * 0.6) + 0.5))
 
@@ -1083,12 +1221,36 @@ def main() -> None:
         prob_profile_a = None
         uncertainty_factor = 1.0
         if profile_a and profile_b:
-            base_diff = fighter_base_score(profile_a) - fighter_base_score(profile_b)
-            style_diff, _ = matchup_score(profile_a, profile_b, weight_class_name)
-            style_diff_compressed = math.tanh(style_diff * 0.7)
-            score_diff = (base_diff * 0.85) + (style_diff_compressed * 0.30)
-            prob_profile_a = sigmoid(score_diff * 1.1)
-            prob_a, matchup_correction = apply_matchup_correction(prob_model_a, prob_profile_a)
+            # -----------------------------------------------------------------
+            # Logit-space assembly (Phase 2)
+            # -----------------------------------------------------------------
+            # Start from calibrated model probability in logit space
+            logit_base = math.log(prob_model_a / (1.0 - prob_model_a))
+
+            # Get structurally-separated logit components
+            striking_logit, grappling_logit, sub_logit, dominance_mult = compute_logit_components(
+                profile_a, profile_b, weight_class_name
+            )
+
+            # Age adjustment in logit space
+            age_adjust_logit = 0.0
+            age_a = fighter_age(profile_a)
+            age_b = fighter_age(profile_b)
+            if age_a is not None and age_b is not None:
+                heavier = is_heavy_division(weight_class_name)
+                age_gap = age_a - age_b
+                if age_a >= 37 and age_b <= 33 and age_gap >= 5:
+                    age_adjust_logit = -0.35 if heavier else -0.55
+                elif age_b >= 37 and age_a <= 33 and (-age_gap) >= 5:
+                    age_adjust_logit = 0.35 if heavier else 0.55
+
+            # Assemble in logit space, then apply dominance expansion
+            logit_p = (logit_base + striking_logit + grappling_logit + sub_logit + age_adjust_logit) * dominance_mult
+
+            prob_a = sigmoid(logit_p)
+            prob_profile_a = sigmoid(striking_logit + grappling_logit + sub_logit + age_adjust_logit)
+            matchup_correction = logit_p - logit_base  # for calibration logging
+
             uncertainty_factor = compute_uncertainty_factor(profile_a, profile_b, weight_class_name)
             prob_a = 0.5 + ((prob_a - 0.5) * uncertainty_factor)
         else:
