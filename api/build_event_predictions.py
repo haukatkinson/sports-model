@@ -1114,11 +1114,13 @@ def compute_logit_components(
     else:
         dominant_path_name = max(path_scores, key=lambda k: abs(path_scores[k]))
 
-    dominant_path_logit = path_scores[dominant_path_name]
-    # Non-dominant paths: small noise floor, not a meaningful second vote
-    secondary_logit = sum(
-        v * 0.10 for k, v in path_scores.items() if k != dominant_path_name
-    )
+    # Blend: dominant path at 0.7, second-best at 0.3.
+    # Preserves a second win condition (e.g. wrestler who also has KO power)
+    # without reverting to averaging-everything.
+    sorted_paths = sorted(path_scores.items(), key=lambda kv: abs(kv[1]), reverse=True)
+    dominant_path_logit = sorted_paths[0][1] * 0.7 + sorted_paths[1][1] * 0.3
+    # Third path: tiny residual noise floor only
+    secondary_logit = sorted_paths[2][1] * 0.08
 
     # -----------------------------------------------------------------------
     # Regime classification → multiplier applied ONLY to dominant path
