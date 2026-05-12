@@ -1042,7 +1042,6 @@ def compute_logit_components(
     # -----------------------------------------------------------------------
     # PATH 1 — Wrestling control
     # Score = (TD volume * opponent TDD vulnerability) differential.
-    # Scaled so max realistic edge (~0.90 one-sided) maps to tanh ≈ 0.98.
     # -----------------------------------------------------------------------
     td_vol_a  = min(1.0, td_avg_a / 3.5)
     td_vol_b  = min(1.0, td_avg_b / 3.5)
@@ -1050,7 +1049,7 @@ def compute_logit_components(
     tdd_vuln_b = max(0.0, 1.0 - td_def_b / 100.0)
     w_dom_a   = td_vol_a * tdd_vuln_b
     w_dom_b   = td_vol_b * tdd_vuln_a
-    wrestling_path = math.tanh((w_dom_a - w_dom_b) * 2.5) * 0.85
+    wrestling_raw = (w_dom_a - w_dom_b) * 2.5
 
     # -----------------------------------------------------------------------
     # PATH 2 — Striking exchange
@@ -1062,8 +1061,7 @@ def compute_logit_components(
     power_edge  = (power_a - power_b) * 0.50
     reach_diff  = (reach_a - reach_b) / 10.0
     reach_bonus = reach_diff * max(0.0, (slpm_edge + def_edge) * 0.12)
-    striking_raw  = slpm_edge + def_edge + absorb_edge + power_edge + reach_bonus
-    striking_path = math.tanh(striking_raw * 2.0) * 0.85
+    striking_raw  = (slpm_edge + def_edge + absorb_edge + power_edge + reach_bonus) * 2.0
 
     # -----------------------------------------------------------------------
     # PATH 3 — Submission threat
@@ -1072,7 +1070,37 @@ def compute_logit_components(
     # -----------------------------------------------------------------------
     sub_threat_a = sub_avg_a * tdd_lib_b * (1.0 + td_vol_a * 0.5)
     sub_threat_b = sub_avg_b * tdd_lib_a * (1.0 + td_vol_b * 0.5)
-    sub_path     = math.tanh((sub_threat_a - sub_threat_b) * 2.0) * 0.70
+    submission_raw = (sub_threat_a - sub_threat_b) * 2.0
+
+    # -----------------------------------------------------------------------
+    # Entropy-driven path scaling
+    # High mismatch (low entropy): allow stronger path expression.
+    # Balanced fights (high entropy): compress path magnitudes.
+    # This removes fixed under-weighting of submission paths.
+    # -----------------------------------------------------------------------
+    raw_strengths = [abs(wrestling_raw), abs(striking_raw), abs(submission_raw)]
+    strength_sum = sum(raw_strengths)
+    if strength_sum > 1e-9:
+        normalized = [value / strength_sum for value in raw_strengths]
+        entropy = -sum(
+            part * math.log(part)
+            for part in normalized
+            if part > 0.0
+        ) / math.log(3.0)
+    else:
+        entropy = 1.0
+
+    sorted_strengths = sorted(raw_strengths, reverse=True)
+    edge_strength = 0.0
+    if sorted_strengths[0] > 1e-9:
+        edge_strength = (sorted_strengths[0] - sorted_strengths[1]) / sorted_strengths[0]
+
+    mismatch_strength = (1.0 - entropy) * 0.5 + edge_strength * 0.5
+    path_scale = 0.68 + (0.50 * mismatch_strength)  # range ~[0.68, 1.18]
+
+    wrestling_path = math.tanh(wrestling_raw) * path_scale
+    striking_path = math.tanh(striking_raw) * path_scale
+    sub_path = math.tanh(submission_raw) * path_scale
 
     # -----------------------------------------------------------------------
     # HARD OVERRIDES — force dominant path on clear structural mismatches

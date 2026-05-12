@@ -40,20 +40,39 @@ tdd_vuln_a = max(0.0, 1.0 - pa.get('td_def', 0.0) / 100.0)
 tdd_vuln_b = max(0.0, 1.0 - pb.get('td_def', 0.0) / 100.0)
 w_dom_a    = td_vol_a * tdd_vuln_b
 w_dom_b    = td_vol_b * tdd_vuln_a
-wrestling_path = math.tanh((w_dom_a - w_dom_b) * 2.5) * 0.85
+wrestling_raw = (w_dom_a - w_dom_b) * 2.5
 
 slpm_a, slpm_b = pa.get('slpm', 0.0), pb.get('slpm', 0.0)
 sapm_a, sapm_b = pa.get('sapm', 0.0), pb.get('sapm', 0.0)
 sdef_a, sdef_b = pa.get('str_def', 0.0), pb.get('str_def', 0.0)
 pw_a, pw_b    = bp.compute_power_score(pa), bp.compute_power_score(pb)
-striking_raw  = (slpm_a - slpm_b)*0.20 + ((sdef_a - sdef_b)/100.0)*0.35 + (sapm_b - sapm_a)*0.14 + (pw_a - pw_b)*0.50
-striking_path = math.tanh(striking_raw * 2.0) * 0.85
+striking_raw  = ((slpm_a - slpm_b)*0.20 + ((sdef_a - sdef_b)/100.0)*0.35 + (sapm_b - sapm_a)*0.14 + (pw_a - pw_b)*0.50) * 2.0
 
 tdd_lib_a = bp.tdd_liability(pa.get('td_def', 0.0))
 tdd_lib_b = bp.tdd_liability(pb.get('td_def', 0.0))
 sub_threat_a = pa.get('sub_avg', 0.0) * tdd_lib_b * (1.0 + td_vol_a * 0.5)
 sub_threat_b = pb.get('sub_avg', 0.0) * tdd_lib_a * (1.0 + td_vol_b * 0.5)
-sub_path = math.tanh((sub_threat_a - sub_threat_b) * 2.0) * 0.70
+submission_raw = (sub_threat_a - sub_threat_b) * 2.0
+
+raw_strengths = [abs(wrestling_raw), abs(striking_raw), abs(submission_raw)]
+strength_sum = sum(raw_strengths)
+if strength_sum > 1e-9:
+    normalized = [value / strength_sum for value in raw_strengths]
+    entropy = -sum(part * math.log(part) for part in normalized if part > 0.0) / math.log(3.0)
+else:
+    entropy = 1.0
+
+sorted_strengths = sorted(raw_strengths, reverse=True)
+edge_strength = 0.0
+if sorted_strengths[0] > 1e-9:
+    edge_strength = (sorted_strengths[0] - sorted_strengths[1]) / sorted_strengths[0]
+
+mismatch_strength = (1.0 - entropy) * 0.5 + edge_strength * 0.5
+path_scale = 0.68 + (0.50 * mismatch_strength)
+
+wrestling_path = math.tanh(wrestling_raw) * path_scale
+striking_path = math.tanh(striking_raw) * path_scale
+sub_path = math.tanh(submission_raw) * path_scale
 
 print()
 print("  TUCO TOKKOS vs IVAN ERSLAN — LOGIT SCORECARD")
@@ -65,6 +84,7 @@ print("  PATH SCORES")
 print(f"  Wrestling path:             {wrestling_path:+.4f}  (w_dom_a={w_dom_a:.3f} vs w_dom_b={w_dom_b:.3f})")
 print(f"  Striking path:              {striking_path:+.4f}")
 print(f"  Submission path:            {sub_path:+.4f}")
+print(f"  Entropy scale factor:       {path_scale:.3f}")
 print(f"  *** Dominant: [{dominant_path_name}]    {dominant_path_logit:+.4f}")
 print(f"  Regime multiplier:          x{regime_multiplier:.3f}")
 print(f"  Dominant x mult:            {regime_multiplier * dominant_path_logit:+.4f}")
