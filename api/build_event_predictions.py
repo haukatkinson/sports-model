@@ -256,6 +256,24 @@ def matchup_score(profile_a: Dict[str, Any], profile_b: Dict[str, Any], weight_c
 
     grappling_edge += (wrestle_pressure_a - wrestle_pressure_b) * 0.5
 
+    wrestle_threat_a = max(0.0, td_avg_a - 1.0) * 0.65 + max(0.0, sub_avg_a - 0.2) * 0.45
+    wrestle_threat_b = max(0.0, td_avg_b - 1.0) * 0.65 + max(0.0, sub_avg_b - 0.2) * 0.45
+
+    takedown_vulnerability_a = wrestle_threat_b * max(0.0, (60.0 - td_def_a) / 60.0) * 0.75
+    takedown_vulnerability_b = wrestle_threat_a * max(0.0, (60.0 - td_def_b) / 60.0) * 0.75
+    takedown_resistance_a = wrestle_threat_b * max(0.0, (td_def_a - 62.0) / 38.0) * 0.20
+    takedown_resistance_b = wrestle_threat_a * max(0.0, (td_def_b - 62.0) / 38.0) * 0.20
+
+    grappling_edge += (takedown_vulnerability_b - takedown_vulnerability_a)
+    grappling_edge += (takedown_resistance_a - takedown_resistance_b)
+
+    wrestler_style_a = max(0.0, td_avg_a - 1.35)
+    wrestler_style_b = max(0.0, td_avg_b - 1.35)
+    striking_vulnerability_a = wrestler_style_a * max(0.0, (58.0 - str_def_a) / 58.0) * 0.55
+    striking_vulnerability_b = wrestler_style_b * max(0.0, (58.0 - str_def_b) / 58.0) * 0.55
+
+    striking_edge += (striking_vulnerability_b - striking_vulnerability_a)
+
     if td_avg_a > (td_avg_b + 0.9) and slpm_a < slpm_b:
         striking_edge += 0.12
     if td_avg_b > (td_avg_a + 0.9) and slpm_b < slpm_a:
@@ -327,6 +345,18 @@ def build_explanation(
         if abs(grappling_signal) >= 0.35:
             grappler = fighter_a if grappling_signal > 0 else fighter_b
             factors.append((abs(grappling_signal), f"{grappler} projects stronger mat control and grappling pressure"))
+
+        wrestle_threat_a = max(0.0, td_avg_a - 1.0) + (max(0.0, sub_avg_a - 0.2) * 0.7)
+        wrestle_threat_b = max(0.0, td_avg_b - 1.0) + (max(0.0, sub_avg_b - 0.2) * 0.7)
+        if wrestle_threat_b >= 0.8 and td_def_a <= 58.0:
+            factors.append((wrestle_threat_b / 2.4, f"{fighter_a} could be vulnerable to {fighter_b}'s takedown pressure due to lower TD defense"))
+        if wrestle_threat_a >= 0.8 and td_def_b <= 58.0:
+            factors.append((wrestle_threat_a / 2.4, f"{fighter_b} could be vulnerable to {fighter_a}'s takedown pressure due to lower TD defense"))
+
+        if td_avg_a >= 1.6 and str_def_a <= 52.0:
+            factors.append((0.22, f"{fighter_a}'s lower striking defense adds risk in stand-up exchanges"))
+        if td_avg_b >= 1.6 and str_def_b <= 52.0:
+            factors.append((0.22, f"{fighter_b}'s lower striking defense adds risk in stand-up exchanges"))
 
         exp_diff = metrics_a["total_fights"] - metrics_b["total_fights"]
         if abs(exp_diff) >= 5:
