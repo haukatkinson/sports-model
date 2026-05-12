@@ -214,6 +214,62 @@ def profile_metrics(profile: Dict[str, Any]) -> Dict[str, float]:
     }
 
 
+def build_model_feature_payload(
+    fighter_a: str,
+    fighter_b: str,
+    profile_a: Dict[str, Any],
+    profile_b: Dict[str, Any],
+) -> Dict[str, Any]:
+    wins_a = int(profile_a.get("wins", 0) or 0)
+    losses_a = int(profile_a.get("losses", 0) or 0)
+    draws_a = int(profile_a.get("draws", 0) or 0)
+    total_a = wins_a + losses_a + draws_a
+
+    wins_b = int(profile_b.get("wins", 0) or 0)
+    losses_b = int(profile_b.get("losses", 0) or 0)
+    draws_b = int(profile_b.get("draws", 0) or 0)
+    total_b = wins_b + losses_b + draws_b
+
+    slpm_a = float(profile_a.get("slpm", 0.0) or 0.0)
+    slpm_b = float(profile_b.get("slpm", 0.0) or 0.0)
+    sapm_a = float(profile_a.get("sapm", 0.0) or 0.0)
+    sapm_b = float(profile_b.get("sapm", 0.0) or 0.0)
+    str_def_a = float(profile_a.get("str_def", 0.0) or 0.0)
+    str_def_b = float(profile_b.get("str_def", 0.0) or 0.0)
+
+    td_avg_a = float(profile_a.get("td_avg", 0.0) or 0.0)
+    td_avg_b = float(profile_b.get("td_avg", 0.0) or 0.0)
+    td_def_a = float(profile_a.get("td_def", 0.0) or 0.0)
+    td_def_b = float(profile_b.get("td_def", 0.0) or 0.0)
+
+    sub_avg_a = float(profile_a.get("sub_avg", 0.0) or 0.0)
+    sub_avg_b = float(profile_b.get("sub_avg", 0.0) or 0.0)
+
+    strike_signal_a = (slpm_a - (sapm_a * 0.5)) + (str_def_a / 100.0)
+    strike_signal_b = (slpm_b - (sapm_b * 0.5)) + (str_def_b / 100.0)
+
+    takedown_signal_a = td_avg_a + (td_def_a / 100.0)
+    takedown_signal_b = td_avg_b + (td_def_b / 100.0)
+
+    age_a = fighter_age(profile_a)
+    age_b = fighter_age(profile_b)
+
+    finish_rate_proxy_a = (sub_avg_a * 0.55) + (max(0.0, slpm_a - 2.0) * 0.08)
+    finish_rate_proxy_b = (sub_avg_b * 0.55) + (max(0.0, slpm_b - 2.0) * 0.08)
+
+    return {
+        "fighterA": fighter_a,
+        "fighterB": fighter_b,
+        "strike_diff": float(strike_signal_a - strike_signal_b),
+        "takedown_diff": float(takedown_signal_a - takedown_signal_b),
+        "reach_diff": float(float(profile_a.get("reach_cm", 0.0) or 0.0) - float(profile_b.get("reach_cm", 0.0) or 0.0)),
+        "win_streak_diff": 0.0,
+        "age_diff": float((age_a or 0.0) - (age_b or 0.0)),
+        "experience_diff": float(total_a - total_b),
+        "finish_rate_diff": float(finish_rate_proxy_a - finish_rate_proxy_b),
+    }
+
+
 def matchup_score(profile_a: Dict[str, Any], profile_b: Dict[str, Any], weight_class_name: str) -> tuple[float, float]:
     slpm_a = float(profile_a.get("slpm", 0.0) or 0.0)
     slpm_b = float(profile_b.get("slpm", 0.0) or 0.0)
@@ -306,8 +362,34 @@ def build_explanation(
 ) -> Dict[str, Any]:
     favored = fighter_a if prob_final_a >= 0.5 else fighter_b
     underdog = fighter_b if favored == fighter_a else fighter_a
+    favored_is_a = favored == fighter_a
 
-    factors: list[tuple[float, str]] = []
+    support_factors: list[tuple[float, str]] = []
+    risk_factors: list[tuple[float, str]] = []
+
+    def add_factor(score_for_a: float, text_when_a: str, text_when_b: str, weight: float = 1.0) -> None:
+        if score_for_a == 0.0:
+            return
+        strength = abs(score_for_a) * weight
+        if score_for_a > 0:
+            text = text_when_a
+            supports_favored = favored_is_a
+        else:
+            text = text_when_b
+            supports_favored = not favored_is_a
+        if supports_favored:
+            support_factors.append((strength, text))
+        else:
+            risk_factors.append((strength, text))
+
+    def add_named_risk(target_name: str, text: str, strength: float) -> None:
+        if strength <= 0:
+            return
+        if target_name == favored:
+            risk_factors.append((strength, text))
+        else:
+            support_factors.append((strength, text))
+
     metrics_a = profile_metrics(profile_a) if profile_a else {}
     metrics_b = profile_metrics(profile_b) if profile_b else {}
     is_heavy = is_heavy_division(weight_class_name)
@@ -315,8 +397,11 @@ def build_explanation(
     if metrics_a and metrics_b:
         win_rate_diff = metrics_a["win_rate"] - metrics_b["win_rate"]
         if abs(win_rate_diff) >= 0.04:
-            stronger = fighter_a if win_rate_diff > 0 else fighter_b
-            factors.append((abs(win_rate_diff), f"{stronger} has the stronger historical win rate"))
+            add_factor(
+                win_rate_diff,
+                f"{fighter_a} has the stronger historical win rate",
+                f"{fighter_b} has the stronger historical win rate",
+            )
 
         reach_diff = metrics_a["reach_cm"] - metrics_b["reach_cm"]
         strike_a = float(profile_a.get("slpm", 0.0) or 0.0)
@@ -336,37 +421,64 @@ def build_explanation(
             + ((td_def_a - td_def_b) / 100.0) * 0.25
         )
         if abs(reach_diff) >= 6.0 and abs(strike_edge) >= 0.25:
-            longer = fighter_a if reach_diff > 0 else fighter_b
-            factors.append((abs(reach_diff) / 50.0 + abs(strike_edge) / 3.0, f"{longer}'s reach + striking edge creates stronger distance control"))
+            combo_signal = (reach_diff / 50.0) + (strike_edge / 3.0)
+            add_factor(
+                combo_signal,
+                f"{fighter_a}'s reach + striking edge creates stronger distance control",
+                f"{fighter_b}'s reach + striking edge creates stronger distance control",
+            )
         elif abs(reach_diff) >= 7.0:
-            longer = fighter_a if reach_diff > 0 else fighter_b
-            factors.append((abs(reach_diff) / 130.0, f"{longer} has a notable reach advantage"))
+            add_factor(
+                reach_diff,
+                f"{fighter_a} has a notable reach advantage",
+                f"{fighter_b} has a notable reach advantage",
+                weight=(1.0 / 130.0),
+            )
 
         if abs(grappling_signal) >= 0.35:
-            grappler = fighter_a if grappling_signal > 0 else fighter_b
-            factors.append((abs(grappling_signal), f"{grappler} projects stronger mat control and grappling pressure"))
+            add_factor(
+                grappling_signal,
+                f"{fighter_a} projects stronger mat control and grappling pressure",
+                f"{fighter_b} projects stronger mat control and grappling pressure",
+            )
 
         wrestle_threat_a = max(0.0, td_avg_a - 1.0) + (max(0.0, sub_avg_a - 0.2) * 0.7)
         wrestle_threat_b = max(0.0, td_avg_b - 1.0) + (max(0.0, sub_avg_b - 0.2) * 0.7)
         if wrestle_threat_b >= 0.8 and td_def_a <= 58.0:
-            factors.append((wrestle_threat_b / 2.4, f"{fighter_a} could be vulnerable to {fighter_b}'s takedown pressure due to lower TD defense"))
+            add_named_risk(
+                fighter_a,
+                f"{fighter_a} could be vulnerable to {fighter_b}'s takedown pressure due to lower TD defense",
+                wrestle_threat_b / 2.4,
+            )
         if wrestle_threat_a >= 0.8 and td_def_b <= 58.0:
-            factors.append((wrestle_threat_a / 2.4, f"{fighter_b} could be vulnerable to {fighter_a}'s takedown pressure due to lower TD defense"))
+            add_named_risk(
+                fighter_b,
+                f"{fighter_b} could be vulnerable to {fighter_a}'s takedown pressure due to lower TD defense",
+                wrestle_threat_a / 2.4,
+            )
 
         if td_avg_a >= 1.6 and str_def_a <= 52.0:
-            factors.append((0.22, f"{fighter_a}'s lower striking defense adds risk in stand-up exchanges"))
+            add_named_risk(fighter_a, f"{fighter_a}'s lower striking defense adds risk in stand-up exchanges", 0.22)
         if td_avg_b >= 1.6 and str_def_b <= 52.0:
-            factors.append((0.22, f"{fighter_b}'s lower striking defense adds risk in stand-up exchanges"))
+            add_named_risk(fighter_b, f"{fighter_b}'s lower striking defense adds risk in stand-up exchanges", 0.22)
 
         exp_diff = metrics_a["total_fights"] - metrics_b["total_fights"]
         if abs(exp_diff) >= 5:
-            experienced = fighter_a if exp_diff > 0 else fighter_b
-            factors.append((abs(exp_diff) / 50.0, f"{experienced} has more pro fight experience"))
+            add_factor(
+                exp_diff,
+                f"{fighter_a} has more pro fight experience",
+                f"{fighter_b} has more pro fight experience",
+                weight=(1.0 / 50.0),
+            )
 
         sos_diff = metrics_a["sos_score"] - metrics_b["sos_score"]
         if abs(sos_diff) >= 0.05:
-            tougher = fighter_a if sos_diff > 0 else fighter_b
-            factors.append((abs(sos_diff) * 1.9, f"{tougher} has faced tougher recent opposition in the last 5 opponents (SoS)"))
+            add_factor(
+                sos_diff,
+                f"{fighter_a} has faced tougher recent opposition in the last 5 opponents (SoS)",
+                f"{fighter_b} has faced tougher recent opposition in the last 5 opponents (SoS)",
+                weight=1.9,
+            )
 
         age_a = metrics_a.get("age_years")
         age_b = metrics_b.get("age_years")
@@ -377,14 +489,32 @@ def build_explanation(
             younger_age = min(age_a, age_b)
             if older_age >= 37 and younger_age <= 33 and (older_age - younger_age) >= 5:
                 weight_note = " (lighter division)" if not is_heavy else ""
-                factors.append((0.18, f"Age gap is substantial: {older_name} is in late-career range vs {younger_name}{weight_note}"))
+                if older_name == favored:
+                    risk_factors.append((0.18, f"Age gap is substantial: {older_name} is in late-career range vs {younger_name}{weight_note}"))
+                else:
+                    support_factors.append((0.18, f"Age gap is substantial: {older_name} is in late-career range vs {younger_name}{weight_note}"))
 
-    factors.append((abs(prob_final_a - 0.5), f"Model confidence leans toward {favored}"))
+    support_factors.append((abs(prob_final_a - 0.5), f"Model confidence leans toward {favored}"))
     if prob_profile_a is not None:
-        factors.append((abs(prob_profile_a - 0.5), "Profile matchup signal supports the lean"))
-    factors.append((abs(prob_model_a - 0.5), "Baseline trained model output contributes to the pick"))
+        profile_supports_favored = (prob_profile_a >= 0.5 and favored_is_a) or (prob_profile_a < 0.5 and not favored_is_a)
+        if profile_supports_favored:
+            support_factors.append((abs(prob_profile_a - 0.5), "Profile matchup signal supports the lean"))
+        else:
+            risk_factors.append((abs(prob_profile_a - 0.5), f"Profile matchup signal leans toward {underdog}"))
 
-    factors_sorted = [item[1] for item in sorted(factors, key=lambda item: item[0], reverse=True)[:3]]
+    model_supports_favored = (prob_model_a >= 0.5 and favored_is_a) or (prob_model_a < 0.5 and not favored_is_a)
+    if model_supports_favored:
+        support_factors.append((abs(prob_model_a - 0.5), "Baseline trained model output contributes to the pick"))
+    else:
+        risk_factors.append((abs(prob_model_a - 0.5), f"Baseline trained model output leans toward {underdog}"))
+
+    top_support = [item[1] for item in sorted(support_factors, key=lambda item: item[0], reverse=True)[:2]]
+    top_risk = [f"Risk: {item[1]}" for item in sorted(risk_factors, key=lambda item: item[0], reverse=True)[:1]]
+    factors_sorted = top_support + top_risk
+    if len(factors_sorted) < 3:
+        remaining_support = [item[1] for item in sorted(support_factors, key=lambda item: item[0], reverse=True)[2:]]
+        remaining_risk = [f"Risk: {item[1]}" for item in sorted(risk_factors, key=lambda item: item[0], reverse=True)[1:]]
+        factors_sorted = (factors_sorted + remaining_support + remaining_risk)[:3]
 
     summary = f"{favored} is favored over {underdog} based on blended model and profile matchup signals."
 
@@ -525,18 +655,23 @@ def main() -> None:
         fighter_b_url = str(row.get("fighterB_url", "")).strip()
         weight_class_name = str(row.get("weight_class_name", "")).strip()
 
-        payload = {
-            "fighterA": fighter_a,
-            "fighterB": fighter_b,
-        }
-        winner, probabilities = predict_fight(payload)
-
-        prob_model_a_raw = float(probabilities.get(fighter_a, 0.5))
-        prob_model_a = calibrate_probability(prob_model_a_raw)
         profile_a = parse_fighter_profile(fighter_a_url, profile_cache)
         profile_b = parse_fighter_profile(fighter_b_url, profile_cache)
         if not profile_a or not profile_b:
             missing_profile_fights += 1
+
+        if profile_a and profile_b:
+            payload = build_model_feature_payload(fighter_a, fighter_b, profile_a, profile_b)
+        else:
+            payload = {
+                "fighterA": fighter_a,
+                "fighterB": fighter_b,
+            }
+
+        winner, probabilities = predict_fight(payload)
+
+        prob_model_a_raw = float(probabilities.get(fighter_a, 0.5))
+        prob_model_a = calibrate_probability(prob_model_a_raw)
 
         feature_signatures.append(build_feature_signature(profile_a or {}, profile_b or {}, weight_class_name))
 
