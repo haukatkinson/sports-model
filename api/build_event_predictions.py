@@ -1012,22 +1012,21 @@ def compute_logit_components(
     profile_a: Dict[str, Any],
     profile_b: Dict[str, Any],
     weight_class_name: str,
-) -> tuple[float, float, float, float, float]:
+) -> tuple[float, float, float, str]:
     """
-    Compute structurally-separated logit adjustments for logit-space final assembly.
+    Gated dominant-path model.
 
-    Returns (striking_logit, grappling_logit, sub_logit, interaction_logit, dominance_bonus).
-    All logit values are additive in logit space, including dominance via log(mult).
+    Computes three independent fight-path scores (wrestling, striking, submission),
+    selects the one with the highest absolute magnitude as the dominant path,
+    and weights it at 60% of the final logit contribution.  Non-dominant paths
+    contribute at 15% each so they can still shift close fights.
 
-    Fixes:
-    - No single linear container — each fight dimension is independent
-    - dominance_mult > 1.0 expands separation when a structural mismatch exists
-    - Natural curve behavior: MMA fights can collapse into one dominant mode
+    Returns (dominant_path_logit, secondary_logit, dominance_bonus, dominant_path_name).
     """
-    slpm_a  = float(profile_a.get("slpm",  0.0) or 0.0)
-    slpm_b  = float(profile_b.get("slpm",  0.0) or 0.0)
-    sapm_a  = float(profile_a.get("sapm",  0.0) or 0.0)
-    sapm_b  = float(profile_b.get("sapm",  0.0) or 0.0)
+    slpm_a    = float(profile_a.get("slpm",    0.0) or 0.0)
+    slpm_b    = float(profile_b.get("slpm",    0.0) or 0.0)
+    sapm_a    = float(profile_a.get("sapm",    0.0) or 0.0)
+    sapm_b    = float(profile_b.get("sapm",    0.0) or 0.0)
     str_def_a = float(profile_a.get("str_def", 0.0) or 0.0)
     str_def_b = float(profile_b.get("str_def", 0.0) or 0.0)
     td_avg_a  = float(profile_a.get("td_avg",  0.0) or 0.0)
@@ -1039,58 +1038,59 @@ def compute_logit_components(
     reach_a   = float(profile_a.get("reach_cm", 175.0) or 175.0)
     reach_b   = float(profile_b.get("reach_cm", 175.0) or 175.0)
 
-    # --- Striking logit (bounded contribution) ---
-    slpm_edge = (slpm_a - slpm_b) * 0.18
-    def_edge  = ((str_def_a - str_def_b) / 100.0) * 0.30
-    absorb_edge = (sapm_b - sapm_a) * 0.12
-    reach_diff = (reach_a - reach_b) / 10.0
-    reach_bonus = reach_diff * max(0.0, (slpm_edge + def_edge) * 0.15)
-    striking_raw = slpm_edge + def_edge + absorb_edge + reach_bonus
-    striking_logit = math.tanh(striking_raw) * 0.8
-
-    # --- Grappling logit (single latent factor, bounded control impact) ---
     tdd_lib_a = tdd_liability(td_def_a)
     tdd_lib_b = tdd_liability(td_def_b)
-    anti_w_a  = compute_anti_wrestling_score(profile_a)
-    anti_w_b  = compute_anti_wrestling_score(profile_b)
-    entry_a   = compute_wrestling_entry_factor(profile_a, profile_b)
-    entry_b   = compute_wrestling_entry_factor(profile_b, profile_a)
-    p_chain_a = min(1.0, td_avg_a / 4.5)
-    p_chain_b = min(1.0, td_avg_b / 4.5)
-    p_initiate_a = 1.0 - (1.0 - p_chain_a) * (1.0 - entry_a * 0.15)
-    p_initiate_b = 1.0 - (1.0 - p_chain_b) * (1.0 - entry_b * 0.15)
-    p_control_b  = tdd_lib_b * (1.0 - anti_w_b * 0.45)
-    p_control_a  = tdd_lib_a * (1.0 - anti_w_a * 0.45)
 
-    td_efficiency_a = max(0.0, min(1.0, p_initiate_a * p_control_b))
-    td_efficiency_b = max(0.0, min(1.0, p_initiate_b * p_control_a))
-    grappling_damage_a = (0.5 * min(1.0, sub_avg_a / 1.5)) + (0.5 * td_efficiency_a)
-    grappling_damage_b = (0.5 * min(1.0, sub_avg_b / 1.5)) + (0.5 * td_efficiency_b)
+    # -----------------------------------------------------------------------
+    # PATH 1 — Wrestling domination
+    # Metric: how decisively can A take down and hold B, vs B doing the same.
+    # tdd_vuln captures raw defensive hole; td_vol captures offensive volume.
+    # -----------------------------------------------------------------------
+    tdd_vuln_a = max(0.0, 1.0 - td_def_a / 100.0)   # how stoppable A is
+    tdd_vuln_b = max(0.0, 1.0 - td_def_b / 100.0)   # how stoppable B is
+    td_vol_a   = min(1.0, td_avg_a / 3.5)            # normalized TD output
+    td_vol_b   = min(1.0, td_avg_b / 3.5)
+    w_dom_a    = td_vol_a * tdd_vuln_b                # A wrestling B
+    w_dom_b    = td_vol_b * tdd_vuln_a                # B wrestling A
+    wrestling_path = math.tanh((w_dom_a - w_dom_b) * 2.5) * 1.3
 
-    anti_wrestling_penalty_a = max(0.0, min(1.0, tdd_lib_b - (anti_w_b * 0.50)))
-    anti_wrestling_penalty_b = max(0.0, min(1.0, tdd_lib_a - (anti_w_a * 0.50)))
+    # -----------------------------------------------------------------------
+    # PATH 2 — Striking exchange
+    # Metric: net striking output / damage differential.
+    # -----------------------------------------------------------------------
+    slpm_edge   = (slpm_a - slpm_b) * 0.18
+    def_edge    = ((str_def_a - str_def_b) / 100.0) * 0.30
+    absorb_edge = (sapm_b - sapm_a) * 0.12
+    reach_diff  = (reach_a - reach_b) / 10.0
+    reach_bonus = reach_diff * max(0.0, (slpm_edge + def_edge) * 0.15)
+    striking_raw  = slpm_edge + def_edge + absorb_edge + reach_bonus
+    striking_path = math.tanh(striking_raw * 2.0) * 1.3
 
-    control_proxy_a = math.tanh(compute_control_proxy(profile_a) - 0.5)
-    control_proxy_b = math.tanh(compute_control_proxy(profile_b) - 0.5)
-    control_delta = (control_proxy_a - control_proxy_b) * 0.25
+    # -----------------------------------------------------------------------
+    # PATH 3 — Submission threat
+    # Metric: sub avg scaled by how often A can actually get there (TDD hole).
+    # -----------------------------------------------------------------------
+    sub_threat_a  = sub_avg_a * tdd_lib_b
+    sub_threat_b  = sub_avg_b * tdd_lib_a
+    sub_path      = math.tanh((sub_threat_a - sub_threat_b) * 2.0) * 1.0
 
-    grappling_latent_a = (0.4 * grappling_damage_a) + (0.3 * anti_wrestling_penalty_a)
-    grappling_latent_b = (0.4 * grappling_damage_b) + (0.3 * anti_wrestling_penalty_b)
-    grappling_raw = (grappling_latent_a - grappling_latent_b) + control_delta
-    grappling_logit = math.tanh(grappling_raw * 1.1) * 0.75
+    # -----------------------------------------------------------------------
+    # Gate: select dominant path, blend the rest as secondary noise
+    # -----------------------------------------------------------------------
+    path_scores: Dict[str, float] = {
+        'wrestling':   wrestling_path,
+        'striking':    striking_path,
+        'submission':  sub_path,
+    }
+    dominant_path_name = max(path_scores, key=lambda k: abs(path_scores[k]))
+    dominant_path_logit = path_scores[dominant_path_name]
+    secondary_logit = sum(
+        v for k, v in path_scores.items() if k != dominant_path_name
+    ) * 0.15
 
-    # --- Submission logit (bounded contribution) ---
-    sub_threat_a = sub_avg_a * tdd_lib_b   # more dangerous vs bad TDD
-    sub_threat_b = sub_avg_b * tdd_lib_a
-    sub_raw = (sub_threat_a - sub_threat_b) * 0.30
-    sub_logit = math.tanh(sub_raw) * 0.4
-
-    # --- Interaction term ---
-    interaction_a = compute_power_score(profile_a) * str_def_liability(str_def_b) * tdd_lib_b
-    interaction_b = compute_power_score(profile_b) * str_def_liability(str_def_a) * tdd_lib_a
-    interaction_logit = (interaction_a - interaction_b) * 1.5
-
-    # --- Regime-based dominance bonus (additive in logit space) ---
+    # -----------------------------------------------------------------------
+    # Regime-based dominance bonus (additive, log-space)
+    # -----------------------------------------------------------------------
     regime, dominant = detect_fight_regime(profile_a, profile_b)
     if regime == 'wrestling_control':
         dominance_mult = 1.35
@@ -1098,7 +1098,7 @@ def compute_logit_components(
         dominance_mult = 1.30
     elif regime == 'striking_exchange':
         dominance_mult = 1.22
-    else:  # contested
+    else:
         dominance_mult = 1.0
 
     if dominant == 'a':
@@ -1108,7 +1108,7 @@ def compute_logit_components(
     else:
         dominance_bonus = 0.0
 
-    return striking_logit, grappling_logit, sub_logit, interaction_logit, dominance_bonus
+    return dominant_path_logit, secondary_logit, dominance_bonus, dominant_path_name
 
 
 def calibrate_probability(probability: float) -> float:
@@ -1253,8 +1253,8 @@ def main() -> None:
             logit_base = math.tanh(base_logit_raw * 0.6) * 1.2
             logit_base *= 0.55
 
-            # Get structurally-separated logit components + additive dominance bonus
-            striking_logit, grappling_logit, sub_logit, interaction_logit, dominance_bonus = compute_logit_components(
+            # Gated dominant-path logit components
+            dominant_path_logit, secondary_logit, dominance_bonus, dominant_path_name = compute_logit_components(
                 profile_a, profile_b, weight_class_name
             )
 
@@ -1273,9 +1273,17 @@ def main() -> None:
             # Uncertainty in logit space — dampens logit magnitude, not probability
             uncertainty_factor = compute_uncertainty_factor(profile_a, profile_b, weight_class_name)
 
-            # Assemble all in logit space: one sigmoid at the very end
-            logit_components = striking_logit + grappling_logit + sub_logit + interaction_logit + age_adjust_logit
-            logit_p = (logit_base + logit_components + dominance_bonus) * uncertainty_factor
+            # Gated assembly: base anchors direction, dominant path drives magnitude
+            # base * 0.4 keeps ML signal relevant without dominating
+            # dominant * 0.6 lets the fight identity express itself
+            logit_components = dominant_path_logit + secondary_logit + age_adjust_logit
+            logit_p = (
+                logit_base * 0.4
+                + dominant_path_logit * 0.6
+                + secondary_logit
+                + dominance_bonus
+                + age_adjust_logit
+            ) * uncertainty_factor
 
             prob_a = sigmoid(logit_p)
             prob_profile_a = sigmoid(logit_components)  # for explanation layer only
