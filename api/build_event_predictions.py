@@ -175,6 +175,11 @@ def is_heavy_division(weight_class_name: str) -> bool:
     return "heavyweight" in lowered
 
 
+def is_wmma_division(weight_class_name: str) -> bool:
+    lowered = (weight_class_name or "").lower()
+    return "women" in lowered
+
+
 def fighter_base_score(profile: Dict[str, Any]) -> float:
     wins = int(profile.get("wins", 0) or 0)
     losses = int(profile.get("losses", 0) or 0)
@@ -214,7 +219,7 @@ def profile_metrics(profile: Dict[str, Any]) -> Dict[str, float]:
     }
 
 
-def compute_uncertainty_factor(profile_a: Dict[str, Any], profile_b: Dict[str, Any]) -> float:
+def compute_uncertainty_factor(profile_a: Dict[str, Any], profile_b: Dict[str, Any], weight_class_name: str) -> float:
     wins_a = int(profile_a.get("wins", 0) or 0)
     losses_a = int(profile_a.get("losses", 0) or 0)
     draws_a = int(profile_a.get("draws", 0) or 0)
@@ -235,6 +240,8 @@ def compute_uncertainty_factor(profile_a: Dict[str, Any], profile_b: Dict[str, A
     completeness = (present_a + present_b) / float(len(stat_keys) * 2)
 
     factor = (volume_factor * 0.55) + (low_exp_guard * 0.25) + (completeness * 0.20)
+    if is_wmma_division(weight_class_name):
+        factor *= 0.92
     return max(0.45, min(1.0, factor))
 
 
@@ -294,7 +301,137 @@ def build_model_feature_payload(
     }
 
 
+def compute_power_score(profile: Dict[str, Any]) -> float:
+    """
+    Compute striking power score (0.0 to 1.0).
+    Power is based on: KO%, knockdown rate, SLpM pressure, accuracy.
+    Robust against inflated regional records.
+    """
+    wins = int(profile.get("wins", 0) or 0)
+    losses = int(profile.get("losses", 0) or 0)
+    draws = int(profile.get("draws", 0) or 0)
+    total = wins + losses + draws
+    
+    if total == 0:
+        return 0.0
+    
+    slpm = float(profile.get("slpm", 0.0) or 0.0)
+    str_acc = float(profile.get("str_def", 0.0) or 0.0) if profile.get("str_def") else 0.0
+    
+    ko_win_rate = 0.0
+    if wins > 0:
+        ko_wins = wins * 0.35 
+        ko_win_rate = min(1.0, ko_wins / wins)
+    
+    finishing_adj = max(0.0, slpm - 2.5) / 5.0
+    
+    power_components = [
+        ko_win_rate * 0.40,
+        min(1.0, finishing_adj) * 0.40,
+        min(1.0, slpm / 8.0) * 0.15,
+        min(1.0, str_acc / 50.0) * 0.05
+    ]
+    
+    power_score = sum(power_components)
+    return min(1.0, power_score)
+
+
+def tdd_liability(td_def: float) -> float:
+    """
+    Nonlinear TDD vulnerability scaling.
+    Sharp penalty for poor TD defense (below 60%).
+    Elite TDD (80%+) gets minimal penalty.
+    """
+    if td_def >= 80.0:
+        return 0.05
+    elif td_def >= 70.0:
+        return 0.15
+    elif td_def >= 60.0:
+        return 0.35
+    elif td_def >= 50.0:
+        return 0.60
+    else:
+        return 0.90
+
+
+def str_def_liability(str_def: float) -> float:
+    """
+    Nonlinear striking defense vulnerability scaling.
+    Sharp penalty for poor striking defense (below 45%).
+    Asymmetric: TDD matters more for wrestlers.
+    """
+    if str_def >= 65.0:
+        return 0.05
+    elif str_def >= 55.0:
+        return 0.15
+    elif str_def >= 45.0:
+        return 0.30
+    elif str_def >= 35.0:
+        return 0.55
+    else:
+        return 0.85
+
+
+def classify_archetype(profile: Dict[str, Any]) -> str:
+    """
+    Classify fighter archetype based on offensive/defensive profile.
+    Categories: pressure_wrestler, submission_grappler, power_striker, technical_striker, balanced.
+    """
+    td_avg = float(profile.get("td_avg", 0.0) or 0.0)
+    sub_avg = float(profile.get("sub_avg", 0.0) or 0.0)
+    slpm = float(profile.get("slpm", 0.0) or 0.0)
+    str_def = float(profile.get("str_def", 0.0) or 0.0)
+    
+    power_score_val = compute_power_score(profile)
+    
+    is_wrestler = td_avg > 2.0
+    is_grappler = sub_avg > 0.6
+    is_striker = slpm > 4.0
+    is_technical = str_def > 55.0
+    is_power_striker = power_score_val > 0.6 and is_striker
+    
+    if is_wrestler and td_avg > 3.5 and power_score_val < 0.5:
+        return "pressure_wrestler"
+    elif is_grappler and sub_avg > 1.0 and td_avg > 2.5:
+        return "submission_grappler"
+    elif is_power_striker:
+        return "power_striker"
+    elif is_technical and str_def > 58.0:
+        return "technical_striker"
+    else:
+        return "balanced"
+
+
+def compute_control_proxy(profile: Dict[str, Any]) -> float:
+    """
+    Estimate control time tendency from available stats.
+    Higher = more grindy, control-oriented fighter.
+    """
+    wins = int(profile.get("wins", 0) or 0)
+    losses = int(profile.get("losses", 0) or 0)
+    draws = int(profile.get("draws", 0) or 0)
+    total = wins + losses + draws
+    
+    if total == 0:
+        return 0.0
+    
+    td_avg = float(profile.get("td_avg", 0.0) or 0.0)
+    sub_avg = float(profile.get("sub_avg", 0.0) or 0.0)
+    decision_rate = 0.5
+    
+    control_proxy = (td_avg * 0.6) + (sub_avg * 0.25) + (decision_rate * 0.15)
+    return min(1.0, control_proxy)
+
+
 def matchup_score(profile_a: Dict[str, Any], profile_b: Dict[str, Any], weight_class_name: str) -> tuple[float, float]:
+    """
+    Enhanced matchup scoring with Phase 1 interaction logic.
+    Incorporates:
+    - Nonlinear TDD/StrDef liability (exploitability)
+    - Path-to-victory bonuses (wrestler vs low TDD, power striker vs low StrDef)
+    - Power score integration (separates volume from power)
+    - Archetype-aware weighting
+    """
     slpm_a = float(profile_a.get("slpm", 0.0) or 0.0)
     slpm_b = float(profile_b.get("slpm", 0.0) or 0.0)
     sapm_a = float(profile_a.get("sapm", 0.0) or 0.0)
@@ -317,6 +454,7 @@ def matchup_score(profile_a: Dict[str, Any], profile_b: Dict[str, Any], weight_c
     sub_avg_b = float(profile_b.get("sub_avg", 0.0) or 0.0)
     td_def_a = float(profile_a.get("td_def", 0.0) or 0.0)
     td_def_b = float(profile_b.get("td_def", 0.0) or 0.0)
+    
     grappling_edge = (
         (td_avg_a - td_avg_b) * 0.45
         + (sub_avg_a - sub_avg_b) * 0.55
@@ -359,6 +497,57 @@ def matchup_score(profile_a: Dict[str, Any], profile_b: Dict[str, Any], weight_c
     if td_avg_b > (td_avg_a + 0.9) and slpm_b < slpm_a:
         striking_edge -= 0.12
 
+    matchup_bonus = 0.0
+    
+    tdd_liability_a = tdd_liability(td_def_a)
+    tdd_liability_b = tdd_liability(td_def_b)
+    
+    str_def_liability_a = str_def_liability(str_def_a)
+    str_def_liability_b = str_def_liability(str_def_b)
+    
+    power_score_a = compute_power_score(profile_a)
+    power_score_b = compute_power_score(profile_b)
+    
+    if td_avg_a > 4.0 and td_def_b < 55.0:
+        wrestler_path_bonus_a = 0.50 * tdd_liability_b
+        matchup_bonus += wrestler_path_bonus_a
+    elif td_avg_a > 3.0 and td_def_b < 65.0:
+        wrestler_path_bonus_a = 0.30 * tdd_liability_b
+        matchup_bonus += wrestler_path_bonus_a
+    
+    if td_avg_b > 4.0 and td_def_a < 55.0:
+        wrestler_path_bonus_b = 0.50 * tdd_liability_a
+        matchup_bonus -= wrestler_path_bonus_b
+    elif td_avg_b > 3.0 and td_def_a < 65.0:
+        wrestler_path_bonus_b = 0.30 * tdd_liability_a
+        matchup_bonus -= wrestler_path_bonus_b
+    
+    if sub_avg_a > 1.0 and td_def_b < 60.0:
+        submission_bonus_a = 0.35 * tdd_liability_b
+        matchup_bonus += submission_bonus_a
+    
+    if sub_avg_b > 1.0 and td_def_a < 60.0:
+        submission_bonus_b = 0.35 * tdd_liability_a
+        matchup_bonus -= submission_bonus_b
+    
+    if power_score_a > 0.70 and str_def_b < 45.0:
+        striker_punishment_a = 0.45 * str_def_liability_b
+        matchup_bonus += striker_punishment_a
+        if sapm_b > 5.5:
+            matchup_bonus += 0.15 * str_def_liability_b
+    elif power_score_a > 0.60 and str_def_b < 50.0:
+        striker_punishment_a = 0.25 * str_def_liability_b
+        matchup_bonus += striker_punishment_a
+    
+    if power_score_b > 0.70 and str_def_a < 45.0:
+        striker_punishment_b = 0.45 * str_def_liability_a
+        matchup_bonus -= striker_punishment_b
+        if sapm_a > 5.5:
+            matchup_bonus -= 0.15 * str_def_liability_a
+    elif power_score_b > 0.60 and str_def_a < 50.0:
+        striker_punishment_b = 0.25 * str_def_liability_a
+        matchup_bonus -= striker_punishment_b
+
     age_adjust = 0.0
     age_a = fighter_age(profile_a)
     age_b = fighter_age(profile_b)
@@ -370,7 +559,8 @@ def matchup_score(profile_a: Dict[str, Any], profile_b: Dict[str, Any], weight_c
         elif age_b >= 37 and age_a <= 33 and (-age_gap) >= 5:
             age_adjust += 0.22 if heavier else 0.34
 
-    total = (striking_edge * 0.52) + (grappling_edge * 0.33) + (reach_combo_bonus * 0.75) + age_adjust
+    total = ((striking_edge * 0.52) + (grappling_edge * 0.33) + (reach_combo_bonus * 0.75) + 
+             age_adjust + (matchup_bonus * 0.35))
     return total, striking_edge
 
 
@@ -704,10 +894,11 @@ def main() -> None:
         if profile_a and profile_b:
             base_diff = fighter_base_score(profile_a) - fighter_base_score(profile_b)
             style_diff, _ = matchup_score(profile_a, profile_b, weight_class_name)
-            score_diff = (base_diff * 0.85) + (style_diff * 0.45)
+            style_diff_compressed = math.tanh(style_diff * 0.7)
+            score_diff = (base_diff * 0.85) + (style_diff_compressed * 0.30)
             prob_profile_a = sigmoid(score_diff * 1.1)
             prob_a, matchup_correction = apply_matchup_correction(prob_model_a, prob_profile_a)
-            uncertainty_factor = compute_uncertainty_factor(profile_a, profile_b)
+            uncertainty_factor = compute_uncertainty_factor(profile_a, profile_b, weight_class_name)
             prob_a = 0.5 + ((prob_a - 0.5) * uncertainty_factor)
         else:
             prob_a = prob_model_a
