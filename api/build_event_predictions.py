@@ -1048,7 +1048,7 @@ def compute_logit_components(
     striking_raw = slpm_edge + def_edge + absorb_edge + reach_bonus
     striking_logit = math.tanh(striking_raw) * 0.8
 
-    # --- Grappling logit (saturated blend of correlated signals) ---
+    # --- Grappling logit (single latent factor, bounded control impact) ---
     tdd_lib_a = tdd_liability(td_def_a)
     tdd_lib_b = tdd_liability(td_def_b)
     anti_w_a  = compute_anti_wrestling_score(profile_a)
@@ -1061,16 +1061,23 @@ def compute_logit_components(
     p_initiate_b = 1.0 - (1.0 - p_chain_b) * (1.0 - entry_b * 0.15)
     p_control_b  = tdd_lib_b * (1.0 - anti_w_b * 0.45)
     p_control_a  = tdd_lib_a * (1.0 - anti_w_a * 0.45)
-    td_pressure_a = p_initiate_a * p_chain_a
-    td_pressure_b = p_initiate_b * p_chain_b
-    control_proxy_a = p_control_b * p_chain_a
-    control_proxy_b = p_control_a * p_chain_b
-    sub_pressure_a = min(1.0, (sub_avg_a / 2.0) * tdd_lib_b)
-    sub_pressure_b = min(1.0, (sub_avg_b / 2.0) * tdd_lib_a)
-    grappling_core_a = (0.5 * td_pressure_a) + (0.3 * control_proxy_a) + (0.2 * sub_pressure_a)
-    grappling_core_b = (0.5 * td_pressure_b) + (0.3 * control_proxy_b) + (0.2 * sub_pressure_b)
-    grappling_raw = (grappling_core_a - grappling_core_b) * 1.2
-    grappling_logit = math.tanh(grappling_raw) * 0.9
+
+    td_efficiency_a = max(0.0, min(1.0, p_initiate_a * p_control_b))
+    td_efficiency_b = max(0.0, min(1.0, p_initiate_b * p_control_a))
+    grappling_damage_a = (0.5 * min(1.0, sub_avg_a / 1.5)) + (0.5 * td_efficiency_a)
+    grappling_damage_b = (0.5 * min(1.0, sub_avg_b / 1.5)) + (0.5 * td_efficiency_b)
+
+    anti_wrestling_penalty_a = max(0.0, min(1.0, tdd_lib_b - (anti_w_b * 0.50)))
+    anti_wrestling_penalty_b = max(0.0, min(1.0, tdd_lib_a - (anti_w_a * 0.50)))
+
+    control_proxy_a = math.tanh(compute_control_proxy(profile_a) - 0.5)
+    control_proxy_b = math.tanh(compute_control_proxy(profile_b) - 0.5)
+    control_delta = (control_proxy_a - control_proxy_b) * 0.25
+
+    grappling_latent_a = (0.4 * grappling_damage_a) + (0.3 * anti_wrestling_penalty_a)
+    grappling_latent_b = (0.4 * grappling_damage_b) + (0.3 * anti_wrestling_penalty_b)
+    grappling_raw = (grappling_latent_a - grappling_latent_b) + control_delta
+    grappling_logit = math.tanh(grappling_raw * 1.1) * 0.75
 
     # --- Submission logit (bounded contribution) ---
     sub_threat_a = sub_avg_a * tdd_lib_b   # more dangerous vs bad TDD
@@ -1095,9 +1102,9 @@ def compute_logit_components(
         dominance_mult = 1.0
 
     if dominant == 'a':
-        dominance_bonus = math.log(dominance_mult)
+        dominance_bonus = math.log(dominance_mult) * 0.6
     elif dominant == 'b':
-        dominance_bonus = -math.log(dominance_mult)
+        dominance_bonus = -math.log(dominance_mult) * 0.6
     else:
         dominance_bonus = 0.0
 
@@ -1244,6 +1251,7 @@ def main() -> None:
             prob_model_a_raw_clamped = max(0.01, min(0.99, prob_model_a_raw))
             base_logit_raw = math.log(prob_model_a_raw_clamped / (1.0 - prob_model_a_raw_clamped))
             logit_base = math.tanh(base_logit_raw * 0.6) * 1.2
+            logit_base *= 0.55
 
             # Get structurally-separated logit components + additive dominance bonus
             striking_logit, grappling_logit, sub_logit, interaction_logit, dominance_bonus = compute_logit_components(

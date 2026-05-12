@@ -3,31 +3,31 @@
     "winner": "Arnold Allen",
     "predicted_method": "Decision",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.096188,
-      "Submission": 0.087909,
-      "Decision": 0.815903
+      "KO/TKO": 0.085441,
+      "Submission": 0.078087,
+      "Decision": 0.836471
     },
     "probabilities": {
-      "Arnold Allen": 0.6527537601245115,
-      "Melquizael Costa": 0.3472462398754885
+      "Arnold Allen": 0.5810683565039053,
+      "Melquizael Costa": 0.4189316434960947
     },
     "explanation": {
       "summary": "Arnold Allen is favored over Melquizael Costa based on blended model and profile matchup signals.",
-      "detailed_summary": "Arnold Allen is projected at 65.3% win probability. Baseline model leans Arnold Allen by 49.1 points. Matchup profile leans Melquizael Costa by 2.5 points. Final blended edge is 30.6 points (high confidence).",
+      "detailed_summary": "Arnold Allen is projected at 58.1% win probability. Baseline model leans Arnold Allen by 49.1 points. Matchup profile leans Melquizael Costa by 2.4 points. Final blended edge is 16.2 points (medium confidence).",
       "factors": [
         "Baseline trained model output contributes to the pick",
         "Arnold Allen has faced tougher recent opposition in the last 5 opponents (SoS)",
         "Risk: Melquizael Costa projects stronger mat control and grappling pressure"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.652754,
+      "blended_prob_fighterA": 0.581068,
       "model_prob_fighterA": 0.745493,
-      "profile_prob_fighterA": 0.48734
+      "profile_prob_fighterA": 0.488043
     },
     "calibration": {
       "raw_model_prob_fighterA": 0.745493,
       "calibrated_model_prob_fighterA": 0.745493,
-      "matchup_correction": -0.050649,
+      "matchup_correction": -0.047838,
       "uncertainty_factor": 1.0
     }
   },
@@ -35,31 +35,31 @@
     "winner": "Dooho Choi",
     "predicted_method": "Decision",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.232865,
-      "Submission": 0.153386,
-      "Decision": 0.613749
+      "KO/TKO": 0.22573,
+      "Submission": 0.148687,
+      "Decision": 0.625583
     },
     "probabilities": {
-      "Dooho Choi": 0.5416866923855435,
-      "Daniel Santos": 0.45831330761445654
+      "Dooho Choi": 0.5165790477867115,
+      "Daniel Santos": 0.4834209522132885
     },
     "explanation": {
       "summary": "Dooho Choi is favored over Daniel Santos based on blended model and profile matchup signals.",
-      "detailed_summary": "Dooho Choi is projected at 54.2% win probability. Baseline model leans Dooho Choi by 56.0 points. Matchup profile leans Daniel Santos by 14.8 points. Final blended edge is 8.3 points (low confidence).",
+      "detailed_summary": "Dooho Choi is projected at 51.7% win probability. Baseline model leans Dooho Choi by 56.0 points. Matchup profile leans Daniel Santos by 8.7 points. Final blended edge is 3.3 points (low confidence).",
       "factors": [
         "Baseline trained model output contributes to the pick",
         "Daniel Santos's lower striking defense adds risk in stand-up exchanges",
         "Risk: Dooho Choi could be vulnerable to Daniel Santos's takedown pressure due to lower TD defense"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.541687,
+      "blended_prob_fighterA": 0.516579,
       "model_prob_fighterA": 0.779815,
-      "profile_prob_fighterA": 0.425863
+      "profile_prob_fighterA": 0.456296
     },
     "calibration": {
       "raw_model_prob_fighterA": 0.779815,
       "calibrated_model_prob_fighterA": 0.779815,
-      "matchup_correction": -0.601276,
+      "matchup_correction": -0.356286,
       "uncertainty_factor": 0.985714
     }
   },
@@ -67,31 +67,31 @@
     "winner": "Malcolm Wellmaker",
     "predicted_method": "Decision",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.108526,
-      "Submission": 0.182544,
-      "Decision": 0.708931
+      "KO/TKO": 0.11012,
+      "Submission": 0.185226,
+      "Decision": 0.704654
     },
     "probabilities": {
-      "Malcolm Wellmaker": 0.5003656301990759,
-      "Juan Diaz": 0.4996343698009241
+      "Malcolm Wellmaker": 0.5106840309848635,
+      "Juan Diaz": 0.4893159690151365
     },
     "explanation": {
       "summary": "Malcolm Wellmaker is favored over Juan Diaz based on blended model and profile matchup signals.",
-      "detailed_summary": "Malcolm Wellmaker is projected at 50.0% win probability. Baseline model leans Malcolm Wellmaker by 54.0 points. Matchup profile leans Juan Diaz by 21.7 points. Final blended edge is 0.1 points (low confidence).",
+      "detailed_summary": "Malcolm Wellmaker is projected at 51.1% win probability. Baseline model leans Malcolm Wellmaker by 54.0 points. Matchup profile leans Juan Diaz by 9.2 points. Final blended edge is 2.1 points (low confidence).",
       "factors": [
         "Baseline trained model output contributes to the pick",
         "Model confidence leans toward Malcolm Wellmaker",
         "Risk: Juan Diaz projects stronger mat control and grappling pressure"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.500366,
+      "blended_prob_fighterA": 0.510684,
       "model_prob_fighterA": 0.769832,
-      "profile_prob_fighterA": 0.391286
+      "profile_prob_fighterA": 0.454237
     },
     "calibration": {
       "raw_model_prob_fighterA": 0.769832,
       "calibrated_model_prob_fighterA": 0.769832,
-      "matchup_correction": -0.742103,
+      "matchup_correction": -0.366218,
       "uncertainty_factor": 0.942857
     }
   },
@@ -99,31 +99,31 @@
     "winner": "Modestas Bukauskas",
     "predicted_method": "Decision",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.108824,
-      "Submission": 0.091811,
-      "Decision": 0.799365
+      "KO/TKO": 0.09393,
+      "Submission": 0.079245,
+      "Decision": 0.826825
     },
     "probabilities": {
-      "Modestas Bukauskas": 0.6292059530060786,
-      "Rodolfo Bellato": 0.3707940469939214
+      "Modestas Bukauskas": 0.5387282691931883,
+      "Rodolfo Bellato": 0.4612717308068117
     },
     "explanation": {
       "summary": "Modestas Bukauskas is favored over Rodolfo Bellato based on blended model and profile matchup signals.",
-      "detailed_summary": "Modestas Bukauskas is projected at 62.9% win probability. Baseline model leans Modestas Bukauskas by 53.8 points. Matchup profile leans Rodolfo Bellato by 10.6 points. Final blended edge is 25.8 points (high confidence).",
+      "detailed_summary": "Modestas Bukauskas is projected at 53.9% win probability. Baseline model leans Modestas Bukauskas by 53.8 points. Matchup profile leans Rodolfo Bellato by 12.6 points. Final blended edge is 7.7 points (low confidence).",
       "factors": [
         "Baseline trained model output contributes to the pick",
         "Modestas Bukauskas has more pro fight experience",
         "Risk: Rodolfo Bellato projects stronger mat control and grappling pressure"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.629206,
+      "blended_prob_fighterA": 0.538728,
       "model_prob_fighterA": 0.768821,
-      "profile_prob_fighterA": 0.447143
+      "profile_prob_fighterA": 0.437246
     },
     "calibration": {
       "raw_model_prob_fighterA": 0.768821,
       "calibrated_model_prob_fighterA": 0.768821,
-      "matchup_correction": -0.212222,
+      "matchup_correction": -0.252345,
       "uncertainty_factor": 1.0
     }
   },
@@ -131,31 +131,31 @@
     "winner": "Timmy Cuamba",
     "predicted_method": "Decision",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.117105,
-      "Submission": 0.101806,
-      "Decision": 0.781088
+      "KO/TKO": 0.105645,
+      "Submission": 0.091843,
+      "Decision": 0.802512
     },
     "probabilities": {
-      "Timmy Cuamba": 0.6511919633206353,
-      "Benardo Sopaj": 0.34880803667936466
+      "Timmy Cuamba": 0.5861685238943902,
+      "Benardo Sopaj": 0.4138314761056098
     },
     "explanation": {
       "summary": "Timmy Cuamba is favored over Benardo Sopaj based on blended model and profile matchup signals.",
-      "detailed_summary": "Timmy Cuamba is projected at 65.1% win probability. Baseline model leans Timmy Cuamba by 61.4 points. Matchup profile leans Benardo Sopaj by 9.6 points. Final blended edge is 30.2 points (high confidence).",
+      "detailed_summary": "Timmy Cuamba is projected at 58.6% win probability. Baseline model leans Timmy Cuamba by 61.4 points. Matchup profile leans Benardo Sopaj by 5.0 points. Final blended edge is 17.2 points (medium confidence).",
       "factors": [
         "Baseline trained model output contributes to the pick",
         "Benardo Sopaj's lower striking defense adds risk in stand-up exchanges",
         "Risk: Benardo Sopaj projects stronger mat control and grappling pressure"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.651192,
+      "blended_prob_fighterA": 0.586169,
       "model_prob_fighterA": 0.807181,
-      "profile_prob_fighterA": 0.452074
+      "profile_prob_fighterA": 0.474814
     },
     "calibration": {
       "raw_model_prob_fighterA": 0.807181,
       "calibrated_model_prob_fighterA": 0.807181,
-      "matchup_correction": -0.210656,
+      "matchup_correction": -0.111068,
       "uncertainty_factor": 0.971429
     }
   },
@@ -163,31 +163,31 @@
     "winner": "Nikolay Veretennikov",
     "predicted_method": "Decision",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.208446,
-      "Submission": 0.332679,
-      "Decision": 0.458875
+      "KO/TKO": 0.199487,
+      "Submission": 0.31838,
+      "Decision": 0.482133
     },
     "probabilities": {
-      "Nikolay Veretennikov": 0.725450072946961,
-      "Khaos Williams": 0.27454992705303904
+      "Nikolay Veretennikov": 0.6787634520642776,
+      "Khaos Williams": 0.3212365479357224
     },
     "explanation": {
       "summary": "Nikolay Veretennikov is favored over Khaos Williams based on blended model and profile matchup signals.",
-      "detailed_summary": "Nikolay Veretennikov is projected at 72.5% win probability. Baseline model leans Nikolay Veretennikov by 43.2 points. Matchup profile leans Nikolay Veretennikov by 6.7 points. Final blended edge is 45.1 points (high confidence).",
+      "detailed_summary": "Nikolay Veretennikov is projected at 67.9% win probability. Baseline model leans Nikolay Veretennikov by 43.2 points. Matchup profile leans Nikolay Veretennikov by 13.9 points. Final blended edge is 35.8 points (high confidence).",
       "factors": [
         "Nikolay Veretennikov projects stronger mat control and grappling pressure",
-        "Model confidence leans toward Nikolay Veretennikov",
+        "Baseline trained model output contributes to the pick",
         "Risk: Khaos Williams's reach + striking edge creates stronger distance control"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.72545,
+      "blended_prob_fighterA": 0.678763,
       "model_prob_fighterA": 0.715855,
-      "profile_prob_fighterA": 0.533277
+      "profile_prob_fighterA": 0.569587
     },
     "calibration": {
       "raw_model_prob_fighterA": 0.715855,
       "calibrated_model_prob_fighterA": 0.715855,
-      "matchup_correction": 0.367091,
+      "matchup_correction": 0.415583,
       "uncertainty_factor": 0.971429
     }
   },
@@ -195,31 +195,31 @@
     "winner": "Jeremiah Wells",
     "predicted_method": "Submission",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.082186,
-      "Submission": 0.747314,
-      "Decision": 0.1705
+      "KO/TKO": 0.078987,
+      "Submission": 0.718222,
+      "Decision": 0.202791
     },
     "probabilities": {
-      "Jeremiah Wells": 0.8151234875206728,
-      "Nicolas Dalby": 0.18487651247932724
+      "Jeremiah Wells": 0.7085511137153896,
+      "Nicolas Dalby": 0.2914488862846104
     },
     "explanation": {
       "summary": "Jeremiah Wells is favored over Nicolas Dalby based on blended model and profile matchup signals.",
-      "detailed_summary": "Jeremiah Wells is projected at 81.5% win probability. Baseline model leans Jeremiah Wells by 55.2 points. Matchup profile leans Jeremiah Wells by 20.9 points. Final blended edge is 63.0 points (high confidence).",
+      "detailed_summary": "Jeremiah Wells is projected at 70.9% win probability. Baseline model leans Jeremiah Wells by 55.2 points. Matchup profile leans Jeremiah Wells by 14.4 points. Final blended edge is 41.7 points (high confidence).",
       "factors": [
         "Jeremiah Wells projects stronger mat control and grappling pressure",
-        "Model confidence leans toward Jeremiah Wells",
+        "Baseline trained model output contributes to the pick",
         "Risk: Nicolas Dalby has faced tougher recent opposition in the last 5 opponents (SoS)"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.815123,
+      "blended_prob_fighterA": 0.708551,
       "model_prob_fighterA": 0.776165,
-      "profile_prob_fighterA": 0.604485
+      "profile_prob_fighterA": 0.572155
     },
     "calibration": {
       "raw_model_prob_fighterA": 0.776165,
       "calibrated_model_prob_fighterA": 0.776165,
-      "matchup_correction": 0.724292,
+      "matchup_correction": 0.47071,
       "uncertainty_factor": 1.0
     }
   },
@@ -227,31 +227,31 @@
     "winner": "Tuco Tokkos",
     "predicted_method": "Submission",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.080225,
-      "Submission": 0.749825,
-      "Decision": 0.16995
+      "KO/TKO": 0.074519,
+      "Submission": 0.69649,
+      "Decision": 0.228991
     },
     "probabilities": {
-      "Tuco Tokkos": 0.8096690131727194,
-      "Ivan Erslan": 0.19033098682728056
+      "Tuco Tokkos": 0.6236852872603963,
+      "Ivan Erslan": 0.3763147127396037
     },
     "explanation": {
       "summary": "Tuco Tokkos is favored over Ivan Erslan based on blended model and profile matchup signals.",
-      "detailed_summary": "Tuco Tokkos is projected at 81.0% win probability. Baseline model leans Tuco Tokkos by 59.9 points. Matchup profile leans Tuco Tokkos by 17.4 points. Final blended edge is 61.9 points (high confidence).",
+      "detailed_summary": "Tuco Tokkos is projected at 62.4% win probability. Baseline model leans Tuco Tokkos by 59.9 points. Matchup profile leans Ivan Erslan by 5.8 points. Final blended edge is 24.7 points (high confidence).",
       "factors": [
         "Tuco Tokkos projects stronger mat control and grappling pressure",
-        "Model confidence leans toward Tuco Tokkos",
+        "Baseline trained model output contributes to the pick",
         "Risk: Tuco Tokkos's lower striking defense adds risk in stand-up exchanges"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.809669,
+      "blended_prob_fighterA": 0.623685,
       "model_prob_fighterA": 0.79942,
-      "profile_prob_fighterA": 0.587205
+      "profile_prob_fighterA": 0.470909
     },
     "calibration": {
       "raw_model_prob_fighterA": 0.79942,
       "calibrated_model_prob_fighterA": 0.79942,
-      "matchup_correction": 0.631545,
+      "matchup_correction": 0.056247,
       "uncertainty_factor": 0.985714
     }
   },
@@ -259,31 +259,31 @@
     "winner": "Ketlen Vieira",
     "predicted_method": "Decision",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.119087,
-      "Submission": 0.424051,
-      "Decision": 0.456862
+      "KO/TKO": 0.115879,
+      "Submission": 0.412629,
+      "Decision": 0.471492
     },
     "probabilities": {
-      "Ketlen Vieira": 0.5477365979479549,
-      "Jacqueline Cavalcanti": 0.45226340205204507
+      "Ketlen Vieira": 0.5183238114359277,
+      "Jacqueline Cavalcanti": 0.48167618856407235
     },
     "explanation": {
       "summary": "Ketlen Vieira is favored over Jacqueline Cavalcanti based on blended model and profile matchup signals.",
-      "detailed_summary": "Ketlen Vieira is projected at 54.8% win probability. Baseline model leans Ketlen Vieira by 43.7 points. Matchup profile leans Jacqueline Cavalcanti by 19.6 points. Final blended edge is 9.5 points (low confidence).",
+      "detailed_summary": "Ketlen Vieira is projected at 51.8% win probability. Baseline model leans Ketlen Vieira by 43.7 points. Matchup profile leans Jacqueline Cavalcanti by 12.6 points. Final blended edge is 3.7 points (low confidence).",
       "factors": [
         "Ketlen Vieira projects stronger mat control and grappling pressure",
         "Ketlen Vieira has faced tougher recent opposition in the last 5 opponents (SoS)",
         "Risk: Jacqueline Cavalcanti has the stronger historical win rate"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.547737,
+      "blended_prob_fighterA": 0.518324,
       "model_prob_fighterA": 0.718366,
-      "profile_prob_fighterA": 0.40206
+      "profile_prob_fighterA": 0.436813
     },
     "calibration": {
       "raw_model_prob_fighterA": 0.718366,
       "calibrated_model_prob_fighterA": 0.718366,
-      "matchup_correction": -0.419665,
+      "matchup_correction": -0.262829,
       "uncertainty_factor": 0.893714
     }
   },
@@ -291,31 +291,31 @@
     "winner": "Andre Petroski",
     "predicted_method": "Submission",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.187818,
-      "Submission": 0.417789,
-      "Decision": 0.394393
+      "KO/TKO": 0.191244,
+      "Submission": 0.425408,
+      "Decision": 0.383348
     },
     "probabilities": {
-      "Cody Brundage": 0.49618580913594934,
-      "Andre Petroski": 0.5038141908640507
+      "Cody Brundage": 0.47294647295226894,
+      "Andre Petroski": 0.527053527047731
     },
     "explanation": {
       "summary": "Andre Petroski is favored over Cody Brundage based on blended model and profile matchup signals.",
-      "detailed_summary": "Andre Petroski is projected at 50.4% win probability. Baseline model leans Cody Brundage by 54.1 points. Matchup profile leans Andre Petroski by 22.6 points. Final blended edge is 0.8 points (low confidence).",
+      "detailed_summary": "Andre Petroski is projected at 52.7% win probability. Baseline model leans Cody Brundage by 54.1 points. Matchup profile leans Andre Petroski by 16.8 points. Final blended edge is 5.4 points (low confidence).",
       "factors": [
         "Andre Petroski projects stronger mat control and grappling pressure",
         "Cody Brundage's lower striking defense adds risk in stand-up exchanges",
         "Risk: Baseline trained model output leans toward Cody Brundage"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.496186,
+      "blended_prob_fighterA": 0.472946,
       "model_prob_fighterA": 0.770681,
-      "profile_prob_fighterA": 0.386786
+      "profile_prob_fighterA": 0.416201
     },
     "calibration": {
       "raw_model_prob_fighterA": 0.770681,
       "calibrated_model_prob_fighterA": 0.770681,
-      "matchup_correction": -0.760947,
+      "matchup_correction": -0.51845,
       "uncertainty_factor": 1.0
     }
   },
@@ -323,31 +323,31 @@
     "winner": "Alice Ardelean",
     "predicted_method": "KO/TKO",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.887244,
-      "Submission": 0.038058,
-      "Decision": 0.074698
+      "KO/TKO": 0.876309,
+      "Submission": 0.037589,
+      "Decision": 0.086102
     },
     "probabilities": {
-      "Alice Ardelean": 0.7978361357411076,
-      "Polyana Viana": 0.20216386425889243
+      "Alice Ardelean": 0.7205933602564204,
+      "Polyana Viana": 0.2794066397435796
     },
     "explanation": {
       "summary": "Alice Ardelean is favored over Polyana Viana based on blended model and profile matchup signals.",
-      "detailed_summary": "Alice Ardelean is projected at 79.8% win probability. Baseline model leans Alice Ardelean by 42.8 points. Matchup profile leans Alice Ardelean by 29.8 points. Final blended edge is 59.6 points (high confidence).",
+      "detailed_summary": "Alice Ardelean is projected at 72.1% win probability. Baseline model leans Alice Ardelean by 42.8 points. Matchup profile leans Alice Ardelean by 26.1 points. Final blended edge is 44.1 points (high confidence).",
       "factors": [
         "Alice Ardelean's reach + striking edge creates stronger distance control",
         "Model confidence leans toward Alice Ardelean",
         "Risk: Polyana Viana projects stronger mat control and grappling pressure"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.797836,
+      "blended_prob_fighterA": 0.720593,
       "model_prob_fighterA": 0.713987,
-      "profile_prob_fighterA": 0.648873
+      "profile_prob_fighterA": 0.630614
     },
     "calibration": {
       "raw_model_prob_fighterA": 0.713987,
       "calibrated_model_prob_fighterA": 0.713987,
-      "matchup_correction": 0.773192,
+      "matchup_correction": 0.617609,
       "uncertainty_factor": 0.906857
     }
   },
@@ -355,31 +355,31 @@
     "winner": "Daniel Barez",
     "predicted_method": "Submission",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.137177,
-      "Submission": 0.513512,
-      "Decision": 0.349311
+      "KO/TKO": 0.129516,
+      "Submission": 0.484834,
+      "Decision": 0.38565
     },
     "probabilities": {
-      "Daniel Barez": 0.7476559678128621,
-      "Luis Gurule": 0.25234403218713786
+      "Daniel Barez": 0.669437890618172,
+      "Luis Gurule": 0.33056210938182795
     },
     "explanation": {
       "summary": "Daniel Barez is favored over Luis Gurule based on blended model and profile matchup signals.",
-      "detailed_summary": "Daniel Barez is projected at 74.8% win probability. Baseline model leans Daniel Barez by 53.1 points. Matchup profile leans Daniel Barez by 3.4 points. Final blended edge is 49.5 points (high confidence).",
+      "detailed_summary": "Daniel Barez is projected at 66.9% win probability. Baseline model leans Daniel Barez by 53.1 points. Matchup profile leans Daniel Barez by 6.6 points. Final blended edge is 33.9 points (high confidence).",
       "factors": [
         "Daniel Barez projects stronger mat control and grappling pressure",
         "Luis Gurule could be vulnerable to Daniel Barez's takedown pressure due to lower TD defense",
         "Risk: Daniel Barez's lower striking defense adds risk in stand-up exchanges"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.747656,
+      "blended_prob_fighterA": 0.669438,
       "model_prob_fighterA": 0.765713,
-      "profile_prob_fighterA": 0.517132
+      "profile_prob_fighterA": 0.533084
     },
     "calibration": {
       "raw_model_prob_fighterA": 0.765713,
       "calibrated_model_prob_fighterA": 0.765713,
-      "matchup_correction": 0.352918,
+      "matchup_correction": 0.302366,
       "uncertainty_factor": 0.985714
     }
   },
@@ -387,31 +387,31 @@
     "winner": "Shauna Bannon",
     "predicted_method": "KO/TKO",
     "predicted_method_probabilities": {
-      "KO/TKO": 0.574566,
-      "Submission": 0.138188,
-      "Decision": 0.287246
+      "KO/TKO": 0.573362,
+      "Submission": 0.137898,
+      "Decision": 0.28874
     },
     "probabilities": {
-      "Shauna Bannon": 0.5941371055850583,
-      "Nicolle Caliari": 0.4058628944149417
+      "Shauna Bannon": 0.5904946914097203,
+      "Nicolle Caliari": 0.40950530859027967
     },
     "explanation": {
       "summary": "Shauna Bannon is favored over Nicolle Caliari based on blended model and profile matchup signals.",
-      "detailed_summary": "Shauna Bannon is projected at 59.4% win probability. Baseline model leans Shauna Bannon by 56.7 points. Matchup profile leans Nicolle Caliari by 0.9 points. Final blended edge is 18.8 points (medium confidence).",
+      "detailed_summary": "Shauna Bannon is projected at 59.0% win probability. Baseline model leans Shauna Bannon by 56.7 points. Matchup profile leans Shauna Bannon by 9.6 points. Final blended edge is 18.1 points (medium confidence).",
       "factors": [
         "Shauna Bannon's reach + striking edge creates stronger distance control",
         "Baseline trained model output contributes to the pick",
         "Risk: Nicolle Caliari projects stronger mat control and grappling pressure"
       ],
       "source": "blended-model-profile",
-      "blended_prob_fighterA": 0.594137,
+      "blended_prob_fighterA": 0.590495,
       "model_prob_fighterA": 0.78355,
-      "profile_prob_fighterA": 0.495343
+      "profile_prob_fighterA": 0.548125
     },
     "calibration": {
       "raw_model_prob_fighterA": 0.78355,
       "calibrated_model_prob_fighterA": 0.78355,
-      "matchup_correction": -0.396534,
+      "matchup_correction": -0.061685,
       "uncertainty_factor": 0.830464
     }
   },
@@ -426,6 +426,6 @@
       "KO/TKO": 2
     },
     "warnings": [],
-    "generated_at": "2026-05-12T01:47:50.405488+00:00"
+    "generated_at": "2026-05-12T01:53:12.784983+00:00"
   }
 }
