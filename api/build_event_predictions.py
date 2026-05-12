@@ -303,9 +303,10 @@ def build_model_feature_payload(
 
 def compute_power_score(profile: Dict[str, Any]) -> float:
     """
-    Compute striking power score (0.0 to 1.0).
-    Power is based on: KO%, knockdown rate, SLpM pressure, accuracy.
-    Robust against inflated regional records.
+    Compute striking POWER score (damage creation ability).
+    Weights: KO%, SLpM pressure, accuracy.
+    Separates from finisher_score (damage conversion).
+    Examples: Derrick Lewis (high), Merab (low).
     """
     wins = int(profile.get("wins", 0) or 0)
     losses = int(profile.get("losses", 0) or 0)
@@ -323,17 +324,62 @@ def compute_power_score(profile: Dict[str, Any]) -> float:
         ko_wins = wins * 0.35 
         ko_win_rate = min(1.0, ko_wins / wins)
     
-    finishing_adj = max(0.0, slpm - 2.5) / 5.0
-    
     power_components = [
-        ko_win_rate * 0.40,
-        min(1.0, finishing_adj) * 0.40,
-        min(1.0, slpm / 8.0) * 0.15,
-        min(1.0, str_acc / 50.0) * 0.05
+        ko_win_rate * 0.50,
+        min(1.0, slpm / 8.0) * 0.35,
+        min(1.0, str_acc / 50.0) * 0.15
     ]
     
     power_score = sum(power_components)
     return min(1.0, power_score)
+
+
+def compute_finisher_score(profile: Dict[str, Any]) -> float:
+    """
+    Compute striking FINISHING ability (damage conversion).
+    High finisher = swarms after damage, grinds clinch, TKOs from volume.
+    High power + low finisher = big punchers who exhaust themselves (e.g., Lewis).
+    High finisher + low power = pressure fighters (e.g., Holloway).
+    Examples: Max Holloway (high), Francis Ngannou (high power, variable finishing).
+    """
+    wins = int(profile.get("wins", 0) or 0)
+    losses = int(profile.get("losses", 0) or 0)
+    draws = int(profile.get("draws", 0) or 0)
+    total = wins + losses + draws
+    
+    if total == 0:
+        return 0.0
+    
+    slpm = float(profile.get("slpm", 0.0) or 0.0)
+    
+    finishing_rate = 0.5 
+    if total > 0:
+        finishing_wins = wins * 0.6
+        finishing_rate = min(1.0, finishing_wins / total)
+    
+    pressure_component = min(1.0, slpm / 6.5) if slpm > 0.0 else 0.0
+    
+    finisher_components = [
+        finishing_rate * 0.55,
+        pressure_component * 0.45
+    ]
+    
+    finisher_score = sum(finisher_components)
+    return min(1.0, finisher_score)
+
+
+def apply_diminishing_returns(raw_bonus: float, compression_factor: float = 0.8) -> float:
+    """
+    Apply tanh-based diminishing returns to prevent bonus stacking explosions.
+    Prevents: wrestler_bonus + sub_bonus + tdd_collapse + ... = 85% favorite
+    Instead: compresses via tanh(raw * factor), keeping matchup realism bounded.
+    
+    Example: raw_bonus=1.2 -> tanh(1.2*0.8)=tanh(0.96)≈0.753 (capped realism)
+    """
+    if abs(raw_bonus) < 0.01:
+        return 0.0
+    compressed = math.tanh(raw_bonus * compression_factor)
+    return compressed
 
 
 def tdd_liability(td_def: float) -> float:
@@ -423,6 +469,78 @@ def compute_control_proxy(profile: Dict[str, Any]) -> float:
     return min(1.0, control_proxy)
 
 
+def compute_anti_wrestling_score(profile: Dict[str, Any]) -> float:
+    """
+    Estimate fighter's ability to avoid/escape control.
+    High = hard to hold down, even if TDD % is mediocre.
+    Accounts for: TD Def, striking output, scramble proxy, sub threat off back.
+    Prevents model from overrating wrestlers who face naturally evasive opponents.
+    Examples: Dynamic strikers with poor TDD but high sub threat (Oliveira) score high.
+    """
+    td_def = float(profile.get("td_def", 0.0) or 0.0)
+    slpm = float(profile.get("slpm", 0.0) or 0.0)
+    sub_avg = float(profile.get("sub_avg", 0.0) or 0.0)
+    
+    td_def_normalized = min(1.0, td_def / 80.0)
+    slpm_normalized = min(1.0, slpm / 6.0)
+    sub_threat = min(1.0, sub_avg / 1.5)
+    
+    anti_wrestling_components = [
+        td_def_normalized * 0.50,
+        slpm_normalized * 0.25,
+        sub_threat * 0.25
+    ]
+    
+    anti_wrestling = sum(anti_wrestling_components)
+    return min(1.0, anti_wrestling)
+
+
+def detect_fragility_flags(profile: Dict[str, Any], opponent_profile: Dict[str, Any] | None = None) -> tuple[bool, float]:
+    """
+    Detect brittle fighters or dangerous disparities.
+    Returns: (has_fragility, uncertainty_multiplier)
+    
+    Fragility indicators:
+    - Absorbs high incoming strikes (SApM > 5.5) + low StrDef
+    - Recently suffered KOs (inferred from late losses)
+    - Age 35+ in lower weight classes
+    - History suggests control vulnerability
+    
+    When fragile: expand uncertainty slightly (multiply by >1.0)
+    This prevents overconfident predictions on brittle matchups.
+    """
+    sapm = float(profile.get("sapm", 0.0) or 0.0)
+    str_def = float(profile.get("str_def", 0.0) or 0.0)
+    losses = int(profile.get("losses", 0) or 0)
+    dob = profile.get("dob")
+    
+    uncertainty_mult = 1.0
+    fragile = False
+    
+    if sapm > 5.5 and str_def < 42.0:
+        fragile = True
+        uncertainty_mult *= 1.08
+    
+    if dob and isinstance(dob, date):
+        age = (date.today() - dob).days / 365.25
+        if age > 36 and losses >= 5:
+            fragile = True
+            uncertainty_mult *= 1.06
+    
+    if losses >= 4:
+        fragile = True
+        uncertainty_mult *= 1.04
+    
+    if opponent_profile:
+        opp_td_avg = float(opponent_profile.get("td_avg", 0.0) or 0.0)
+        own_td_def = float(profile.get("td_def", 0.0) or 0.0)
+        if opp_td_avg > 3.0 and own_td_def < 50.0:
+            fragile = True
+            uncertainty_mult *= 1.05
+    
+    return fragile, uncertainty_mult
+
+
 def matchup_score(profile_a: Dict[str, Any], profile_b: Dict[str, Any], weight_class_name: str) -> tuple[float, float]:
     """
     Enhanced matchup scoring with Phase 1 interaction logic.
@@ -498,6 +616,7 @@ def matchup_score(profile_a: Dict[str, Any], profile_b: Dict[str, Any], weight_c
         striking_edge -= 0.12
 
     matchup_bonus = 0.0
+    raw_bonus = 0.0
     
     tdd_liability_a = tdd_liability(td_def_a)
     tdd_liability_b = tdd_liability(td_def_b)
@@ -508,45 +627,57 @@ def matchup_score(profile_a: Dict[str, Any], profile_b: Dict[str, Any], weight_c
     power_score_a = compute_power_score(profile_a)
     power_score_b = compute_power_score(profile_b)
     
+    finisher_score_a = compute_finisher_score(profile_a)
+    finisher_score_b = compute_finisher_score(profile_b)
+    
+    anti_wrestling_a = compute_anti_wrestling_score(profile_a)
+    anti_wrestling_b = compute_anti_wrestling_score(profile_b)
+    
     if td_avg_a > 4.0 and td_def_b < 55.0:
         wrestler_path_bonus_a = 0.50 * tdd_liability_b
-        matchup_bonus += wrestler_path_bonus_a
+        raw_bonus += wrestler_path_bonus_a
     elif td_avg_a > 3.0 and td_def_b < 65.0:
         wrestler_path_bonus_a = 0.30 * tdd_liability_b
-        matchup_bonus += wrestler_path_bonus_a
+        raw_bonus += wrestler_path_bonus_a
     
     if td_avg_b > 4.0 and td_def_a < 55.0:
         wrestler_path_bonus_b = 0.50 * tdd_liability_a
-        matchup_bonus -= wrestler_path_bonus_b
+        raw_bonus -= wrestler_path_bonus_b
     elif td_avg_b > 3.0 and td_def_a < 65.0:
         wrestler_path_bonus_b = 0.30 * tdd_liability_a
-        matchup_bonus -= wrestler_path_bonus_b
+        raw_bonus -= wrestler_path_bonus_b
     
     if sub_avg_a > 1.0 and td_def_b < 60.0:
         submission_bonus_a = 0.35 * tdd_liability_b
-        matchup_bonus += submission_bonus_a
+        raw_bonus += submission_bonus_a
     
     if sub_avg_b > 1.0 and td_def_a < 60.0:
         submission_bonus_b = 0.35 * tdd_liability_a
-        matchup_bonus -= submission_bonus_b
+        raw_bonus -= submission_bonus_b
     
     if power_score_a > 0.70 and str_def_b < 45.0:
         striker_punishment_a = 0.45 * str_def_liability_b
-        matchup_bonus += striker_punishment_a
+        raw_bonus += striker_punishment_a
         if sapm_b > 5.5:
-            matchup_bonus += 0.15 * str_def_liability_b
+            raw_bonus += 0.15 * str_def_liability_b
     elif power_score_a > 0.60 and str_def_b < 50.0:
         striker_punishment_a = 0.25 * str_def_liability_b
-        matchup_bonus += striker_punishment_a
+        raw_bonus += striker_punishment_a
     
     if power_score_b > 0.70 and str_def_a < 45.0:
         striker_punishment_b = 0.45 * str_def_liability_a
-        matchup_bonus -= striker_punishment_b
+        raw_bonus -= striker_punishment_b
         if sapm_a > 5.5:
-            matchup_bonus -= 0.15 * str_def_liability_a
+            raw_bonus -= 0.15 * str_def_liability_a
     elif power_score_b > 0.60 and str_def_a < 50.0:
         striker_punishment_b = 0.25 * str_def_liability_a
-        matchup_bonus -= striker_punishment_b
+        raw_bonus -= striker_punishment_b
+    
+    anti_wrestling_dampening_a = (1.0 - anti_wrestling_b) * 0.08
+    anti_wrestling_dampening_b = (1.0 - anti_wrestling_a) * 0.08
+    raw_bonus += (anti_wrestling_dampening_a - anti_wrestling_dampening_b)
+    
+    matchup_bonus = apply_diminishing_returns(raw_bonus, compression_factor=0.8)
 
     age_adjust = 0.0
     age_a = fighter_age(profile_a)
