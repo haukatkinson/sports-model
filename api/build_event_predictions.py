@@ -14,6 +14,7 @@ from datetime import datetime, date, timezone
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / "data" / "nearest_event_fights.csv"
 OUTPUT_PATH = ROOT / "data" / "nearest_event_predictions.json"
+MIN_UFC_CAGE_TIME_MINUTES = 30.0
 
 import sys
 
@@ -36,13 +37,6 @@ def fetch_html(url: str) -> str:
     )
     with urlopen(request, timeout=20) as response:  # nosec B310 - trusted UFC stats URL
         return response.read().decode("utf-8", errors="ignore")
-
-
-def parse_record(text: str) -> tuple[int, int, int]:
-    match = re.search(r"Record:\s*(\d+)-(\d+)-(\d+)", text, flags=re.IGNORECASE)
-    if not match:
-        return 0, 0, 0
-    return int(match.group(1)), int(match.group(2)), int(match.group(3))
 
 
 def parse_reach_cm(text: str) -> float:
@@ -76,6 +70,211 @@ def parse_percent_stat(text: str, label: str) -> float:
     pattern = rf"{re.escape(label)}\s*:\s*(\d+(?:\.\d+)?)%"
     match = re.search(pattern, text, flags=re.IGNORECASE)
     return float(match.group(1)) if match else 0.0
+
+
+def _extract_two_values(column_html: str) -> tuple[float, float] | None:
+    cleaned = re.sub(r"<[^>]+>", " ", column_html)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    values = re.findall(r"-?\d+(?:\.\d+)?", cleaned)
+    if len(values) < 2:
+        return None
+    return float(values[0]), float(values[1])
+
+
+def _extract_cell_values(cell_html: str) -> list[str]:
+    items = re.findall(r"<p[^>]*>([\s\S]*?)</p>", cell_html)
+    if not items:
+        cleaned = re.sub(r"<[^>]+>", " ", cell_html)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return [cleaned] if cleaned else []
+
+    values: list[str] = []
+    for item in items:
+        cleaned = re.sub(r"<[^>]+>", " ", item)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        values.append(cleaned)
+    return values
+
+
+def _parse_of_value(value: str) -> tuple[float, float]:
+    match = re.search(r"(\d+)\s*of\s*(\d+)", value, flags=re.IGNORECASE)
+    if not match:
+        return 0.0, 0.0
+    return float(match.group(1)), float(match.group(2))
+
+
+def parse_fight_detail_stats(fight_url: str, cache: Dict[str, Any]) -> Dict[str, Dict[str, float]]:
+    cache_key = f"fight_detail_stats:{fight_url}"
+    cached = cache.get(cache_key)
+    if isinstance(cached, dict):
+        return cached
+
+    try:
+        html = fetch_html(fight_url)
+    except Exception:
+        cache[cache_key] = {}
+        return {}
+
+    fighter_urls = re.findall(
+        r'<a[^>]*class="b-link b-fight-details__person-link"[^>]*href="(http://ufcstats.com/fighter-details/[a-z0-9]+)"',
+        html,
+    )
+    if len(fighter_urls) < 2:
+        cache[cache_key] = {}
+        return {}
+
+    row_pattern = r'<tr[^>]*class="b-fight-details__table-row[^\"]*"[\s\S]*?</tr>'
+    td_pattern = r'<td class="b-fight-details__table-col[^\"]*">([\s\S]*?)</td>'
+    stat_columns: list[str] = []
+    for row_html in re.findall(row_pattern, html):
+        columns = re.findall(td_pattern, row_html)
+        if len(columns) >= 10:
+            stat_columns = columns
+            break
+
+    if not stat_columns:
+        cache[cache_key] = {}
+        return {}
+
+    sig_vals = _extract_cell_values(stat_columns[3])
+    td_vals = _extract_cell_values(stat_columns[5])
+    sub_vals = _extract_cell_values(stat_columns[7])
+
+    stats_map: Dict[str, Dict[str, float]] = {}
+    for idx in range(2):
+        sig_text = sig_vals[idx] if idx < len(sig_vals) else ""
+        td_text = td_vals[idx] if idx < len(td_vals) else ""
+        sub_text = sub_vals[idx] if idx < len(sub_vals) else ""
+
+        sig_landed, sig_attempted = _parse_of_value(sig_text)
+        td_landed, td_attempted = _parse_of_value(td_text)
+        sub_match = re.search(r"(\d+)", sub_text)
+        sub_attempts = float(sub_match.group(1)) if sub_match else 0.0
+
+        stats_map[fighter_urls[idx]] = {
+            "sig_landed": sig_landed,
+            "sig_attempted": sig_attempted,
+            "td_landed": td_landed,
+            "td_attempted": td_attempted,
+            "sub_attempts": sub_attempts,
+        }
+
+    cache[cache_key] = stats_map
+    return stats_map
+
+
+def parse_ufc_fight_history(html: str, fighter_url: str, cache: Dict[str, Any]) -> Dict[str, float]:
+    wins = 0
+    losses = 0
+    draws = 0
+    total_minutes = 0.0
+    sig_strikes_landed = 0.0
+    sig_strikes_attempted = 0.0
+    sig_strikes_absorbed = 0.0
+    sig_strikes_defended_against = 0.0
+    takedowns_landed = 0.0
+    takedowns_attempted = 0.0
+    takedowns_allowed = 0.0
+    takedowns_defended_against = 0.0
+    submissions_attempted = 0.0
+    row_pattern = r'<tr[^>]*class="b-fight-details__table-row[^\"]*"[\s\S]*?</tr>'
+    td_pattern = r'<td class="b-fight-details__table-col[^\"]*">([\s\S]*?)</td>'
+
+    for row_html in re.findall(row_pattern, html):
+        if "http://ufcstats.com/fight-details/" not in row_html:
+            continue
+        if "b-link b-link_style_black" not in row_html:
+            continue
+
+        fight_url_match = re.search(r"http://ufcstats.com/fight-details/[a-z0-9]+", row_html)
+        if not fight_url_match:
+            continue
+        fight_url = fight_url_match.group(0)
+
+        columns = re.findall(td_pattern, row_html)
+        if len(columns) < 10:
+            continue
+
+        fighter_links = re.findall(r'href="(http://ufcstats.com/fighter-details/[a-z0-9]+)"', columns[1])
+        if len(fighter_links) < 2:
+            continue
+        if fighter_links[0] == fighter_url:
+            fighter_index = 0
+        elif fighter_links[1] == fighter_url:
+            fighter_index = 1
+        else:
+            continue
+        opponent_index = 1 - fighter_index
+
+        result_text = re.sub(r"<[^>]+>", " ", columns[0])
+        result_text = re.sub(r"\s+", " ", result_text).strip().lower()
+        if "win" in result_text:
+            wins += 1
+        elif "loss" in result_text:
+            losses += 1
+        elif "draw" in result_text:
+            draws += 1
+
+        round_text = re.sub(r"<[^>]+>", " ", columns[8])
+        round_text = re.sub(r"\s+", " ", round_text).strip()
+        time_text = re.sub(r"<[^>]+>", " ", columns[9])
+        time_text = re.sub(r"\s+", " ", time_text).strip()
+
+        round_match = re.search(r"(\d+)", round_text)
+        time_match = re.search(r"(\d{1,2}):(\d{2})", time_text)
+        if not round_match or not time_match:
+            continue
+
+        round_num = int(round_match.group(1))
+        minute_part = int(time_match.group(1))
+        second_part = int(time_match.group(2))
+        elapsed_minutes = max(0, round_num - 1) * 5.0
+        elapsed_minutes += minute_part + (second_part / 60.0)
+        total_minutes += elapsed_minutes
+
+        detail_stats = parse_fight_detail_stats(fight_url, cache)
+        fighter_stats = detail_stats.get(fighter_url)
+        opponent_url = fighter_links[opponent_index]
+        opponent_stats = detail_stats.get(opponent_url)
+        if not fighter_stats or not opponent_stats:
+            continue
+
+        sig_strikes_landed += float(fighter_stats.get("sig_landed", 0.0) or 0.0)
+        sig_strikes_attempted += float(fighter_stats.get("sig_attempted", 0.0) or 0.0)
+        takedowns_landed += float(fighter_stats.get("td_landed", 0.0) or 0.0)
+        takedowns_attempted += float(fighter_stats.get("td_attempted", 0.0) or 0.0)
+        submissions_attempted += float(fighter_stats.get("sub_attempts", 0.0) or 0.0)
+
+        sig_strikes_absorbed += float(opponent_stats.get("sig_landed", 0.0) or 0.0)
+        sig_strikes_defended_against += float(opponent_stats.get("sig_attempted", 0.0) or 0.0)
+        takedowns_allowed += float(opponent_stats.get("td_landed", 0.0) or 0.0)
+        takedowns_defended_against += float(opponent_stats.get("td_attempted", 0.0) or 0.0)
+
+    slpm = (sig_strikes_landed / total_minutes) if total_minutes > 0 else 0.0
+    sapm = (sig_strikes_absorbed / total_minutes) if total_minutes > 0 else 0.0
+    td_avg = ((takedowns_landed * 15.0) / total_minutes) if total_minutes > 0 else 0.0
+    sub_avg = ((submissions_attempted * 15.0) / total_minutes) if total_minutes > 0 else 0.0
+    str_def = 0.0
+    if sig_strikes_defended_against > 0:
+        str_def = (1.0 - (sig_strikes_absorbed / sig_strikes_defended_against)) * 100.0
+    td_def = 0.0
+    if takedowns_defended_against > 0:
+        td_def = (1.0 - (takedowns_allowed / takedowns_defended_against)) * 100.0
+    str_def = max(0.0, min(100.0, str_def))
+    td_def = max(0.0, min(100.0, td_def))
+
+    return {
+        "wins": float(wins),
+        "losses": float(losses),
+        "draws": float(draws),
+        "ufc_cage_time_minutes": float(total_minutes),
+        "slpm": float(slpm),
+        "sapm": float(sapm),
+        "td_avg": float(td_avg),
+        "sub_avg": float(sub_avg),
+        "str_def": float(str_def),
+        "td_def": float(td_def),
+    }
 
 
 def extract_recent_opponent_urls(html: str, fighter_url: str, limit: int = 5) -> list[str]:
@@ -116,7 +315,7 @@ def compute_sos_score(opponent_profiles: list[Dict[str, Any]]) -> float:
     return weighted_sum / weight_total
 
 
-def parse_fighter_profile(url: str, cache: Dict[str, Dict[str, Any]], include_sos: bool = True) -> Dict[str, Any]:
+def parse_fighter_profile(url: str, cache: Dict[str, Any], include_sos: bool = True) -> Dict[str, Any]:
     if not url:
         return {}
     cache_key = url if include_sos else f"{url}#nosos"
@@ -136,7 +335,10 @@ def parse_fighter_profile(url: str, cache: Dict[str, Dict[str, Any]], include_so
     text = re.sub(r"<[^>]+>", " ", html)
     text = re.sub(r"\s+", " ", text).strip()
 
-    wins, losses, draws = parse_record(text)
+    ufc_history = parse_ufc_fight_history(html, url, cache)
+    wins = int(ufc_history.get("wins", 0.0) or 0.0)
+    losses = int(ufc_history.get("losses", 0.0) or 0.0)
+    draws = int(ufc_history.get("draws", 0.0) or 0.0)
     reach_cm = parse_reach_cm(text)
     dob = parse_dob(text)
 
@@ -145,13 +347,14 @@ def parse_fighter_profile(url: str, cache: Dict[str, Dict[str, Any]], include_so
         "losses": losses,
         "draws": draws,
         "reach_cm": reach_cm,
+        "ufc_cage_time_minutes": float(ufc_history.get("ufc_cage_time_minutes", 0.0) or 0.0),
         "dob": dob,
-        "slpm": parse_float_stat(text, "SLpM"),
-        "sapm": parse_float_stat(text, "SApM"),
-        "td_avg": parse_float_stat(text, "TD Avg."),
-        "sub_avg": parse_float_stat(text, "Sub. Avg."),
-        "str_def": parse_percent_stat(text, "Str. Def"),
-        "td_def": parse_percent_stat(text, "TD Def."),
+        "slpm": float(ufc_history.get("slpm", 0.0) or 0.0),
+        "sapm": float(ufc_history.get("sapm", 0.0) or 0.0),
+        "td_avg": float(ufc_history.get("td_avg", 0.0) or 0.0),
+        "sub_avg": float(ufc_history.get("sub_avg", 0.0) or 0.0),
+        "str_def": float(ufc_history.get("str_def", 0.0) or 0.0),
+        "td_def": float(ufc_history.get("td_def", 0.0) or 0.0),
         "sos_score": 0.5,
     }
 
@@ -214,6 +417,7 @@ def profile_metrics(profile: Dict[str, Any]) -> Dict[str, float]:
         "total_fights": float(total),
         "win_rate": float(win_rate),
         "reach_cm": float(reach_cm),
+        "ufc_cage_time_minutes": float(profile.get("ufc_cage_time_minutes", 0.0) or 0.0),
         "age_years": float(age_years) if age_years is not None else float("nan"),
         "sos_score": float(profile.get("sos_score", 0.5) or 0.5),
     }
@@ -1277,6 +1481,7 @@ def main() -> None:
     method_values: list[str] = []
     feature_signatures: list[str] = []
     missing_profile_fights = 0
+    skipped_low_cage_time_fights = 0
 
     for row in rows:
         fighter_a = str(row.get("fighterA", "")).strip()
@@ -1292,6 +1497,12 @@ def main() -> None:
         profile_b = parse_fighter_profile(fighter_b_url, profile_cache)
         if not profile_a or not profile_b:
             missing_profile_fights += 1
+
+        cage_time_a = float((profile_a or {}).get("ufc_cage_time_minutes", 0.0) or 0.0)
+        cage_time_b = float((profile_b or {}).get("ufc_cage_time_minutes", 0.0) or 0.0)
+        if cage_time_a < MIN_UFC_CAGE_TIME_MINUTES or cage_time_b < MIN_UFC_CAGE_TIME_MINUTES:
+            skipped_low_cage_time_fights += 1
+            continue
 
         if profile_a and profile_b:
             payload = build_model_feature_payload(fighter_a, fighter_b, profile_a, profile_b)
@@ -1426,6 +1637,8 @@ def main() -> None:
         "unique_probabilities": unique_probs,
         "unique_feature_signatures": unique_feature_signatures,
         "missing_profile_fights": missing_profile_fights,
+        "skipped_low_cage_time_fights": skipped_low_cage_time_fights,
+        "min_ufc_cage_time_minutes": MIN_UFC_CAGE_TIME_MINUTES,
         "method_counts": dict(method_counts),
         "warnings": warnings,
         "generated_at": datetime.now(timezone.utc).isoformat(),

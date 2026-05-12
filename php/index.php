@@ -603,6 +603,22 @@ $precomputedPredictions = loadPrecomputedPredictions($predictionCachePath);
 if (!$precomputedPredictions) {
   $precomputedPredictions = loadPrecomputedPredictions($predictionCacheAltPath);
 }
+$enforcePrecomputedCardFilter = isset($precomputedPredictions['__meta__']['min_ufc_cage_time_minutes']);
+
+if ($enforcePrecomputedCardFilter) {
+  $eligiblePredictionKeys = [];
+  foreach ($precomputedPredictions as $predictionKey => $predictionValue) {
+    if ($predictionKey === '__meta__' || !is_array($predictionValue)) {
+      continue;
+    }
+    $eligiblePredictionKeys[$predictionKey] = true;
+  }
+
+  $fights = array_values(array_filter($fights, function (array $fight) use ($eligiblePredictionKeys): bool {
+    return isset($eligiblePredictionKeys[buildFightKey($fight)]);
+  }));
+}
+
 $trackingSummary = buildTrackingSummary(loadPredictionHistory($historyPath));
 $predictionHistoryRows = loadPredictionHistory($historyPath);
 $localOddsCache = loadLocalOddsCache($localOddsCachePath);
@@ -614,7 +630,7 @@ $submittedOdds = $_POST['odds'] ?? [];
   $dbStatusMessage = null;
   $dbConn = tryDbConnection();
 
-foreach ($fights as &$fight) {
+foreach ($fights as $fightIndex => &$fight) {
     $fight['fight_id'] = null;
     $fightKey = buildFightKey($fight);
     $submittedFighterAOdds = isset($submittedOdds[$fightKey]) ? normalizeOddsInput($submittedOdds[$fightKey]['fighterA'] ?? '') : null;
@@ -721,6 +737,7 @@ foreach ($fights as &$fight) {
     }
 }
 unset($fight);
+$fights = array_values($fights);
 
 if ($localOddsCacheDirty) {
   $savedLocalOdds = saveLocalOddsCache($localOddsCachePath, $localOddsCache);
