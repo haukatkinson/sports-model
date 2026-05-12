@@ -509,16 +509,16 @@ def compute_anti_wrestling_score(profile: Dict[str, Any]) -> float:
 
 def compute_wrestling_entry_factor(attacker: Dict[str, Any], defender: Dict[str, Any]) -> float:
     """
-    Estimate how effectively an attacker can actually GET takedowns against a specific defender.
-    Adjusts raw TD Avg downward when defender creates distance control problems.
+    P(attacker successfully closes distance and initiates a takedown attempt).
+    Semantic: probability of a clean entry given defender's threat profile.
 
-    Factors that reduce entry success:
-    - Defender's striking threat (SLpM) — punishes bad entries
-    - Defender's reach advantage — longer reach = harder clinch access
-    - Defender's striking defense — clean exchanges discourage shooting
+    Reduces when defender has:
+    - High striking output (punishes bad shots)
+    - Good striking defense (exchanges favor defender, discourages wrestling)
+    - Reach advantage (longer frame = harder clinch access)
 
-    Returns a multiplier 0.5–1.0 applied to attacker's effective TD threat.
-    1.0 = no entry resistance, 0.5 = heavily resisted entries.
+    Returns: float in [0.25, 0.90] — even elite defenders don't prevent all entries,
+             and even bad defenders resist some.
     """
     defender_slpm = float(defender.get("slpm", 0.0) or 0.0)
     defender_str_def = float(defender.get("str_def", 0.0) or 0.0)
@@ -527,13 +527,16 @@ def compute_wrestling_entry_factor(attacker: Dict[str, Any], defender: Dict[str,
     defender_reach = float(defender.get("reach_cm", 175.0) or 175.0)
     reach_gap = max(0.0, defender_reach - attacker_reach)
 
-    striking_threat = min(1.0, defender_slpm / 6.0)
-    defense_quality = min(1.0, defender_str_def / 65.0)
-    reach_penalty = min(0.25, reach_gap / 80.0)
+    # Each factor is a named probability component
+    p_striking_threat = min(1.0, defender_slpm / 6.0)       # P(defender punishes entry)
+    p_defense_quality = min(1.0, defender_str_def / 65.0)   # P(exchanges hurt shooter)
+    p_reach_penalty = min(0.30, reach_gap / 70.0)           # P(reach gap blocks clinch)
 
-    entry_resistance = (striking_threat * 0.45) + (defense_quality * 0.35) + (reach_penalty * 0.20)
+    # Union of defender's entry-prevention mechanisms
+    p_entry_blocked = 1.0 - (1.0 - p_striking_threat * 0.45) * (1.0 - p_defense_quality * 0.35) * (1.0 - p_reach_penalty * 0.20)
 
-    return max(0.5, 1.0 - (entry_resistance * 0.5))
+    # P(entry succeeds) = 1 - P(entry blocked), floored at 0.25
+    return max(0.25, 1.0 - p_entry_blocked * 0.6)
 
 
 def detect_fragility_flags(profile: Dict[str, Any], opponent_profile: Dict[str, Any] | None = None) -> tuple[bool, float]:
@@ -659,34 +662,47 @@ def matchup_score(profile_a: Dict[str, Any], profile_b: Dict[str, Any], weight_c
     matchup_bonus = 0.0
     raw_bonus = 0.0
     
-    tdd_liability_a = tdd_liability(td_def_a)
-    tdd_liability_b = tdd_liability(td_def_b)
+    # -----------------------------------------------------------------------
+    # All interaction signals defined as named probabilities (0.0–1.0)
+    # -----------------------------------------------------------------------
 
-    str_def_liability_a = str_def_liability(str_def_a)
-    str_def_liability_b = str_def_liability(str_def_b)
+    tdd_liability_a = tdd_liability(td_def_a)   # P(A gets controlled given TD lands)
+    tdd_liability_b = tdd_liability(td_def_b)   # P(B gets controlled given TD lands)
 
-    power_score_a = compute_power_score(profile_a)
+    str_def_liability_a = str_def_liability(str_def_a)  # P(A is hurt in striking exchanges)
+    str_def_liability_b = str_def_liability(str_def_b)  # P(B is hurt in striking exchanges)
+
+    power_score_a = compute_power_score(profile_a)   # P(A creates meaningful damage)
     power_score_b = compute_power_score(profile_b)
 
-    finisher_score_a = compute_finisher_score(profile_a)
+    finisher_score_a = compute_finisher_score(profile_a)  # P(A converts damage to stoppage)
     finisher_score_b = compute_finisher_score(profile_b)
 
-    anti_wrestling_a = compute_anti_wrestling_score(profile_a)
+    anti_wrestling_a = compute_anti_wrestling_score(profile_a)  # P(A avoids/escapes control)
     anti_wrestling_b = compute_anti_wrestling_score(profile_b)
 
-    # Chain wrestling factor: how often does attacker actually chain TDs?
-    # Conditions tdd_liability — 33% TDD only catastrophic vs real chain wrestlers
-    chain_factor_a = min(1.0, td_avg_a / 3.5)
-    chain_factor_b = min(1.0, td_avg_b / 3.5)
+    # P(attacker has chain wrestling game plan) — scales with TD volume
+    p_chain_a = min(1.0, td_avg_a / 4.5)
+    p_chain_b = min(1.0, td_avg_b / 4.5)
 
-    # Entry success rate: how effectively can attacker close and shoot vs this specific defender?
-    entry_factor_a = compute_wrestling_entry_factor(profile_a, profile_b)
-    entry_factor_b = compute_wrestling_entry_factor(profile_b, profile_a)
+    # P(entry attempt succeeds against specific defender)
+    p_entry_a = compute_wrestling_entry_factor(profile_a, profile_b)
+    p_entry_b = compute_wrestling_entry_factor(profile_b, profile_a)
 
-    # Effective TDD pressure: raw liability * whether attacker is actually a chain wrestler
-    # Anti-wrestling dampens further — hard to hold down fighters reduce realized pressure
-    effective_tdd_pressure_b_vs_a = tdd_liability_b * chain_factor_a * entry_factor_a * (1.0 - anti_wrestling_b * 0.35)
-    effective_tdd_pressure_a_vs_b = tdd_liability_a * chain_factor_b * entry_factor_b * (1.0 - anti_wrestling_a * 0.35)
+    # P(control succeeds given TD lands) = vulnerability * P(can't escape)
+    p_control_b_vs_a = tdd_liability_b * (1.0 - anti_wrestling_b * 0.45)   # B gets stuck
+    p_control_a_vs_b = tdd_liability_a * (1.0 - anti_wrestling_a * 0.45)   # A gets stuck
+
+    # P(attack initiates): union of chain game plan + opportunistic entry
+    # Union prevents collapse when one factor is near-zero (e.g. Ivan barely shoots)
+    # 1 - (1-A)(1-B) ensures even non-wrestlers have floor grappling pressure
+    p_initiate_a = 1.0 - (1.0 - p_chain_a) * (1.0 - p_entry_a * 0.15)
+    p_initiate_b = 1.0 - (1.0 - p_chain_b) * (1.0 - p_entry_b * 0.15)
+
+    # Effective TDD pressure: union of initiation paths * control success
+    # Floor at 0.05 — even strikers create occasional grappling obligation
+    effective_tdd_pressure_b_vs_a = max(0.05, 1.0 - (1.0 - p_initiate_a) * (1.0 - p_control_b_vs_a * p_chain_a))
+    effective_tdd_pressure_a_vs_b = max(0.05, 1.0 - (1.0 - p_initiate_b) * (1.0 - p_control_a_vs_b * p_chain_b))
 
     if td_avg_a > 4.0 and td_def_b < 55.0:
         raw_bonus += 0.50 * effective_tdd_pressure_b_vs_a
