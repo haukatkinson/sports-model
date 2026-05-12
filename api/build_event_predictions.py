@@ -988,10 +988,10 @@ def detect_fight_regime(profile_a: Dict[str, Any], profile_b: Dict[str, Any]) ->
     strike_a = power_a * str_def_liability(str_def_b)
     strike_b = power_b * str_def_liability(str_def_a)
 
-    WRESTLE_THRESH = 0.30
-    SUB_THRESH = 0.40
-    STRIKE_THRESH = 0.28
-    EDGE_RATIO = 1.4  # must be 40% stronger than opponent's same-regime score
+    WRESTLE_THRESH = 0.18   # lowered: soft wrestling control still triggers regime
+    SUB_THRESH = 0.25        # lowered: partial sub threat still biases fight mode
+    STRIKE_THRESH = 0.18     # lowered: partial striking mismatch still triggers
+    EDGE_RATIO = 1.25        # lowered: 25% edge is enough — not 40%
 
     if wrestle_a >= WRESTLE_THRESH and wrestle_a > wrestle_b * EDGE_RATIO:
         return 'wrestling_control', 'a'
@@ -1073,25 +1073,34 @@ def compute_logit_components(
     sub_threat_b = sub_avg_b * tdd_lib_a
     sub_logit = (sub_threat_a - sub_threat_b) * 0.30
 
+    # --- Interaction term (conditional explosion) ---
+    # Power striker vs bad defense vs bad TDD = multiplicative collapse, not additive
+    # This is the single highest-impact missing term.
+    interaction_a = compute_power_score(profile_a) * str_def_liability(str_def_b) * tdd_lib_b
+    interaction_b = compute_power_score(profile_b) * str_def_liability(str_def_a) * tdd_lib_a
+    interaction_logit = (interaction_a - interaction_b) * 1.5
+
     # --- Regime-based dominance multiplier ---
     # Non-contested fights should naturally produce wider separation.
     # Multiplying the full logit (model + components) compresses contested fights
     # and expands dominant ones — mathematically correct via logit curve shape.
     regime, dominant = detect_fight_regime(profile_a, profile_b)
     if regime == 'wrestling_control':
-        dominance_mult = 1.45
+        dominance_mult = 1.90
     elif regime == 'submission_threat':
-        dominance_mult = 1.35
+        dominance_mult = 1.80
     elif regime == 'striking_exchange':
-        dominance_mult = 1.30
+        dominance_mult = 1.55
     else:  # contested
         dominance_mult = 1.05
 
-    return striking_logit, grappling_logit, sub_logit, dominance_mult
+    return striking_logit, grappling_logit, sub_logit, interaction_logit, dominance_mult
 
 
 def calibrate_probability(probability: float) -> float:
-    return max(0.01, min(0.99, ((probability - 0.5) * 0.6) + 0.5))
+    # Legacy — kept for fallback (no-profile) path only.
+    # Do NOT use in the logit-space assembly path.
+    return max(0.01, min(0.99, probability))
 
 
 def apply_matchup_correction(prob_model_a: float, prob_profile_a: float | None) -> tuple[float, float]:
@@ -1222,13 +1231,17 @@ def main() -> None:
         uncertainty_factor = 1.0
         if profile_a and profile_b:
             # -----------------------------------------------------------------
-            # Logit-space assembly (Phase 2)
+            # Logit-space assembly (Phase 2 — pure logit, no p-space blending)
             # -----------------------------------------------------------------
-            # Start from calibrated model probability in logit space
-            logit_base = math.log(prob_model_a / (1.0 - prob_model_a))
+            # Work directly from raw model logit — no p-space calibration shrinkage.
+            # ML model (logistic regression) outputs are already logit-calibrated.
+            # A mild 0.85 scale accounts for model overconfidence without
+            # collapsing variance the way ((p-0.5)*0.6)+0.5 did in p-space.
+            prob_model_a_raw_clamped = max(0.01, min(0.99, prob_model_a_raw))
+            logit_base = math.log(prob_model_a_raw_clamped / (1.0 - prob_model_a_raw_clamped)) * 0.85
 
-            # Get structurally-separated logit components
-            striking_logit, grappling_logit, sub_logit, dominance_mult = compute_logit_components(
+            # Get structurally-separated logit components + interaction term
+            striking_logit, grappling_logit, sub_logit, interaction_logit, dominance_mult = compute_logit_components(
                 profile_a, profile_b, weight_class_name
             )
 
@@ -1244,15 +1257,16 @@ def main() -> None:
                 elif age_b >= 37 and age_a <= 33 and (-age_gap) >= 5:
                     age_adjust_logit = 0.35 if heavier else 0.55
 
-            # Assemble in logit space, then apply dominance expansion
-            logit_p = (logit_base + striking_logit + grappling_logit + sub_logit + age_adjust_logit) * dominance_mult
+            # Uncertainty in logit space — dampens logit magnitude, not probability
+            uncertainty_factor = compute_uncertainty_factor(profile_a, profile_b, weight_class_name)
+
+            # Assemble all in logit space: one sigmoid at the very end
+            logit_components = striking_logit + grappling_logit + sub_logit + interaction_logit + age_adjust_logit
+            logit_p = (logit_base + logit_components) * dominance_mult * uncertainty_factor
 
             prob_a = sigmoid(logit_p)
-            prob_profile_a = sigmoid(striking_logit + grappling_logit + sub_logit + age_adjust_logit)
-            matchup_correction = logit_p - logit_base  # for calibration logging
-
-            uncertainty_factor = compute_uncertainty_factor(profile_a, profile_b, weight_class_name)
-            prob_a = 0.5 + ((prob_a - 0.5) * uncertainty_factor)
+            prob_profile_a = sigmoid(logit_components)  # for explanation layer only
+            matchup_correction = logit_p - logit_base   # for calibration logging
         else:
             prob_a = prob_model_a
             matchup_correction = 0.0
