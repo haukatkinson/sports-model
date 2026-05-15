@@ -24,6 +24,22 @@ if str(API_DIR) not in sys.path:
 
 from predict import predict_fight  # noqa: E402
 
+SCRIPTS_DIR = ROOT / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+try:
+    from track_predictions import log_prediction  # noqa: E402
+    TRACKING_ENABLED = True
+except ImportError:
+    TRACKING_ENABLED = False
+
+try:
+    from track_predictions import log_prediction  # noqa: E402
+    TRACKING_ENABLED = True
+except ImportError:
+    TRACKING_ENABLED = False
+
 
 def fetch_html(url: str) -> str:
     if not url:
@@ -72,6 +88,27 @@ def parse_percent_stat(text: str, label: str) -> float:
     return float(match.group(1)) if match else 0.0
 
 
+def parse_stance(text: str) -> str:
+    match = re.search(
+        r"STANCE:\s*([A-Za-z\-\s]+?)\s+(?:DOB:|SLpM:|SApM:|TD\s+Avg\.:|Sub\.\s+Avg\.:|Str\.\s+Def:|TD\s+Def\.:|$)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return ""
+    return re.sub(r"\s+", " ", match.group(1)).strip()
+
+
+def _parse_mmss_to_seconds(value: str) -> float:
+    text = (value or "").strip()
+    if not text or text == "---" or text == "--":
+        return 0.0
+    match = re.search(r"(\d{1,2}):(\d{2})", text)
+    if not match:
+        return 0.0
+    return float(int(match.group(1)) * 60 + int(match.group(2)))
+
+
 def _extract_two_values(column_html: str) -> tuple[float, float] | None:
     cleaned = re.sub(r"<[^>]+>", " ", column_html)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
@@ -116,8 +153,9 @@ def parse_fight_detail_stats(fight_url: str, cache: Dict[str, Any]) -> Dict[str,
         return {}
 
     fighter_urls = re.findall(
-        r'<a[^>]*class="b-link b-fight-details__person-link"[^>]*href="(http://ufcstats.com/fighter-details/[a-z0-9]+)"',
+        r"<a[^>]*class=['\"][^'\"]*b-fight-details__person-link[^'\"]*['\"][^>]*href=['\"]?(http://ufcstats.com/fighter-details/[a-z0-9]+)['\"]?",
         html,
+        flags=re.IGNORECASE,
     )
     if len(fighter_urls) < 2:
         cache[cache_key] = {}
@@ -136,27 +174,36 @@ def parse_fight_detail_stats(fight_url: str, cache: Dict[str, Any]) -> Dict[str,
         cache[cache_key] = {}
         return {}
 
-    sig_vals = _extract_cell_values(stat_columns[3])
+    sig_vals = _extract_cell_values(stat_columns[2])
+    kd_vals = _extract_cell_values(stat_columns[1])
     td_vals = _extract_cell_values(stat_columns[5])
     sub_vals = _extract_cell_values(stat_columns[7])
+    ctrl_vals = _extract_cell_values(stat_columns[9])
 
     stats_map: Dict[str, Dict[str, float]] = {}
     for idx in range(2):
         sig_text = sig_vals[idx] if idx < len(sig_vals) else ""
+        kd_text = kd_vals[idx] if idx < len(kd_vals) else ""
         td_text = td_vals[idx] if idx < len(td_vals) else ""
         sub_text = sub_vals[idx] if idx < len(sub_vals) else ""
+        ctrl_text = ctrl_vals[idx] if idx < len(ctrl_vals) else ""
 
         sig_landed, sig_attempted = _parse_of_value(sig_text)
+        kd_match = re.search(r"(\d+)", kd_text)
+        kd_landed = float(kd_match.group(1)) if kd_match else 0.0
         td_landed, td_attempted = _parse_of_value(td_text)
         sub_match = re.search(r"(\d+)", sub_text)
         sub_attempts = float(sub_match.group(1)) if sub_match else 0.0
+        ctrl_seconds = _parse_mmss_to_seconds(ctrl_text)
 
         stats_map[fighter_urls[idx]] = {
             "sig_landed": sig_landed,
             "sig_attempted": sig_attempted,
+            "kd_landed": kd_landed,
             "td_landed": td_landed,
             "td_attempted": td_attempted,
             "sub_attempts": sub_attempts,
+            "ctrl_seconds": ctrl_seconds,
         }
 
     cache[cache_key] = stats_map
@@ -167,16 +214,29 @@ def parse_ufc_fight_history(html: str, fighter_url: str, cache: Dict[str, Any]) 
     wins = 0
     losses = 0
     draws = 0
+    sub_wins = 0
+    decision_wins = 0
+    ko_tko_wins = 0
+    sub_losses = 0
+    ko_tko_losses = 0
+    decision_losses = 0
+    times_finished = 0
+    wins_by_finish = 0
+    finish_wins_round1 = 0
+    finish_wins_late = 0
     total_minutes = 0.0
     sig_strikes_landed = 0.0
     sig_strikes_attempted = 0.0
     sig_strikes_absorbed = 0.0
     sig_strikes_defended_against = 0.0
+    knockdowns_landed = 0.0
+    knockdowns_absorbed = 0.0
     takedowns_landed = 0.0
     takedowns_attempted = 0.0
     takedowns_allowed = 0.0
     takedowns_defended_against = 0.0
     submissions_attempted = 0.0
+    top_control_seconds = 0.0
     row_pattern = r'<tr[^>]*class="b-fight-details__table-row[^\"]*"[\s\S]*?</tr>'
     td_pattern = r'<td class="b-fight-details__table-col[^\"]*">([\s\S]*?)</td>'
 
@@ -215,6 +275,27 @@ def parse_ufc_fight_history(html: str, fighter_url: str, cache: Dict[str, Any]) 
         elif "draw" in result_text:
             draws += 1
 
+        method_text = re.sub(r"<[^>]+>", " ", columns[7])
+        method_text = re.sub(r"\s+", " ", method_text).strip().lower()
+        if "win" in result_text:
+            if "submission" in method_text:
+                sub_wins += 1
+                wins_by_finish += 1
+            elif "decision" in method_text:
+                decision_wins += 1
+            elif "ko/tko" in method_text or "tko" in method_text or "ko" in method_text:
+                ko_tko_wins += 1
+                wins_by_finish += 1
+        elif "loss" in result_text:
+            if "submission" in method_text:
+                sub_losses += 1
+                times_finished += 1
+            elif "ko/tko" in method_text or "tko" in method_text or "ko" in method_text:
+                ko_tko_losses += 1
+                times_finished += 1
+            elif "decision" in method_text:
+                decision_losses += 1
+
         round_text = re.sub(r"<[^>]+>", " ", columns[8])
         round_text = re.sub(r"\s+", " ", round_text).strip()
         time_text = re.sub(r"<[^>]+>", " ", columns[9])
@@ -232,6 +313,12 @@ def parse_ufc_fight_history(html: str, fighter_url: str, cache: Dict[str, Any]) 
         elapsed_minutes += minute_part + (second_part / 60.0)
         total_minutes += elapsed_minutes
 
+        if "win" in result_text and ("submission" in method_text or "ko/tko" in method_text or "tko" in method_text or "ko" in method_text):
+            if round_num == 1:
+                finish_wins_round1 += 1
+            elif round_num >= 3:
+                finish_wins_late += 1
+
         detail_stats = parse_fight_detail_stats(fight_url, cache)
         fighter_stats = detail_stats.get(fighter_url)
         opponent_url = fighter_links[opponent_index]
@@ -241,12 +328,15 @@ def parse_ufc_fight_history(html: str, fighter_url: str, cache: Dict[str, Any]) 
 
         sig_strikes_landed += float(fighter_stats.get("sig_landed", 0.0) or 0.0)
         sig_strikes_attempted += float(fighter_stats.get("sig_attempted", 0.0) or 0.0)
+        knockdowns_landed += float(fighter_stats.get("kd_landed", 0.0) or 0.0)
         takedowns_landed += float(fighter_stats.get("td_landed", 0.0) or 0.0)
         takedowns_attempted += float(fighter_stats.get("td_attempted", 0.0) or 0.0)
         submissions_attempted += float(fighter_stats.get("sub_attempts", 0.0) or 0.0)
+        top_control_seconds += float(fighter_stats.get("ctrl_seconds", 0.0) or 0.0)
 
         sig_strikes_absorbed += float(opponent_stats.get("sig_landed", 0.0) or 0.0)
         sig_strikes_defended_against += float(opponent_stats.get("sig_attempted", 0.0) or 0.0)
+        knockdowns_absorbed += float(opponent_stats.get("kd_landed", 0.0) or 0.0)
         takedowns_allowed += float(opponent_stats.get("td_landed", 0.0) or 0.0)
         takedowns_defended_against += float(opponent_stats.get("td_attempted", 0.0) or 0.0)
 
@@ -254,6 +344,11 @@ def parse_ufc_fight_history(html: str, fighter_url: str, cache: Dict[str, Any]) 
     sapm = (sig_strikes_absorbed / total_minutes) if total_minutes > 0 else 0.0
     td_avg = ((takedowns_landed * 15.0) / total_minutes) if total_minutes > 0 else 0.0
     sub_avg = ((submissions_attempted * 15.0) / total_minutes) if total_minutes > 0 else 0.0
+    knockdowns_per_15 = ((knockdowns_landed * 15.0) / total_minutes) if total_minutes > 0 else 0.0
+    knockdowns_absorbed_per_15 = ((knockdowns_absorbed * 15.0) / total_minutes) if total_minutes > 0 else 0.0
+    control_minutes_per_15 = ((top_control_seconds / 60.0) * 15.0 / total_minutes) if total_minutes > 0 else 0.0
+    top_control_minutes_per_td = (top_control_seconds / 60.0) / max(1.0, takedowns_landed)
+    ground_time_ratio = top_control_seconds / max(1.0, total_minutes * 60.0)
     str_def = 0.0
     if sig_strikes_defended_against > 0:
         str_def = (1.0 - (sig_strikes_absorbed / sig_strikes_defended_against)) * 100.0
@@ -262,6 +357,21 @@ def parse_ufc_fight_history(html: str, fighter_url: str, cache: Dict[str, Any]) 
         td_def = (1.0 - (takedowns_allowed / takedowns_defended_against)) * 100.0
     str_def = max(0.0, min(100.0, str_def))
     td_def = max(0.0, min(100.0, td_def))
+
+    win_total = max(1, wins)
+    loss_total = max(1, losses)
+    sub_win_rate = float(sub_wins) / float(win_total) if wins > 0 else 0.0
+    decision_win_rate = float(decision_wins) / float(win_total) if wins > 0 else 0.0
+    ko_tko_win_rate = float(ko_tko_wins) / float(win_total) if wins > 0 else 0.0
+    sub_loss_rate = float(sub_losses) / float(loss_total) if losses > 0 else 0.0
+    ko_tko_loss_rate = float(ko_tko_losses) / float(loss_total) if losses > 0 else 0.0
+    decision_loss_rate = float(decision_losses) / float(loss_total) if losses > 0 else 0.0
+    finish_wins_round1_rate = float(finish_wins_round1) / float(max(1, wins_by_finish)) if wins_by_finish > 0 else 0.0
+    late_finish_wins_rate = float(finish_wins_late) / float(max(1, wins_by_finish)) if wins_by_finish > 0 else 0.0
+    avg_fight_minutes = float(total_minutes) / float(max(1, wins + losses + draws)) if (wins + losses + draws) > 0 else 0.0
+    pace_score = ((slpm * 0.6) + (td_avg * 0.9)) / max(1.0, avg_fight_minutes)
+    cardio_risk = max(0.0, (pace_score - 1.05))
+    sample_confidence = min(1.0, float(total_minutes) / 120.0)
 
     return {
         "wins": float(wins),
@@ -272,8 +382,28 @@ def parse_ufc_fight_history(html: str, fighter_url: str, cache: Dict[str, Any]) 
         "sapm": float(sapm),
         "td_avg": float(td_avg),
         "sub_avg": float(sub_avg),
+        "knockdowns_per_15": float(knockdowns_per_15),
+        "knockdowns_absorbed_per_15": float(knockdowns_absorbed_per_15),
+        "control_minutes_per_15": float(control_minutes_per_15),
+        "top_control_minutes_per_td": float(top_control_minutes_per_td),
+        "ground_time_ratio": float(ground_time_ratio),
         "str_def": float(str_def),
         "td_def": float(td_def),
+        "sub_win_rate": float(sub_win_rate),
+        "decision_win_rate": float(decision_win_rate),
+        "ko_tko_win_rate": float(ko_tko_win_rate),
+        "ko_tko_wins": float(ko_tko_wins),
+        "wins_by_finish": float(wins_by_finish),
+        "sub_loss_rate": float(sub_loss_rate),
+        "ko_tko_loss_rate": float(ko_tko_loss_rate),
+        "decision_loss_rate": float(decision_loss_rate),
+        "times_finished": float(times_finished),
+        "finish_wins_round1_rate": float(finish_wins_round1_rate),
+        "late_finish_wins_rate": float(late_finish_wins_rate),
+        "avg_fight_minutes": float(avg_fight_minutes),
+        "pace_score": float(pace_score),
+        "cardio_risk": float(cardio_risk),
+        "sample_confidence": float(sample_confidence),
     }
 
 
@@ -315,6 +445,11 @@ def compute_sos_score(opponent_profiles: list[Dict[str, Any]]) -> float:
     return weighted_sum / weight_total
 
 
+def stabilize_rate(rate_value: float, minutes: float, prior_rate: float, prior_minutes: float) -> float:
+    total_minutes = max(0.0, float(minutes))
+    return ((rate_value * total_minutes) + (prior_rate * prior_minutes)) / max(1.0, total_minutes + prior_minutes)
+
+
 def parse_fighter_profile(url: str, cache: Dict[str, Any], include_sos: bool = True) -> Dict[str, Any]:
     if not url:
         return {}
@@ -349,12 +484,47 @@ def parse_fighter_profile(url: str, cache: Dict[str, Any], include_sos: bool = T
         "reach_cm": reach_cm,
         "ufc_cage_time_minutes": float(ufc_history.get("ufc_cage_time_minutes", 0.0) or 0.0),
         "dob": dob,
+        "raw_slpm": float(ufc_history.get("slpm", 0.0) or 0.0),
+        "raw_td_avg": float(ufc_history.get("td_avg", 0.0) or 0.0),
+        "raw_sub_avg": float(ufc_history.get("sub_avg", 0.0) or 0.0),
+        "raw_kd_per15": float(ufc_history.get("knockdowns_per_15", 0.0) or 0.0),
         "slpm": float(ufc_history.get("slpm", 0.0) or 0.0),
         "sapm": float(ufc_history.get("sapm", 0.0) or 0.0),
         "td_avg": float(ufc_history.get("td_avg", 0.0) or 0.0),
         "sub_avg": float(ufc_history.get("sub_avg", 0.0) or 0.0),
+        "knockdowns_per_15": float(ufc_history.get("knockdowns_per_15", 0.0) or 0.0),
+        "knockdowns_absorbed_per_15": float(ufc_history.get("knockdowns_absorbed_per_15", 0.0) or 0.0),
+        "control_minutes_per_15": float(ufc_history.get("control_minutes_per_15", 0.0) or 0.0),
+        "top_control_minutes_per_td": float(ufc_history.get("top_control_minutes_per_td", 0.0) or 0.0),
+        "ground_time_ratio": float(ufc_history.get("ground_time_ratio", 0.0) or 0.0),
+        "str_acc": parse_percent_stat(text, "Str. Acc."),
         "str_def": float(ufc_history.get("str_def", 0.0) or 0.0),
         "td_def": float(ufc_history.get("td_def", 0.0) or 0.0),
+        "stance": parse_stance(text),
+        "sub_win_rate": float(ufc_history.get("sub_win_rate", 0.0) or 0.0),
+        "decision_win_rate": float(ufc_history.get("decision_win_rate", 0.0) or 0.0),
+        "ko_tko_win_rate": float(ufc_history.get("ko_tko_win_rate", 0.0) or 0.0),
+        "ko_tko_wins": float(ufc_history.get("ko_tko_wins", 0.0) or 0.0),
+        "wins_by_finish": float(ufc_history.get("wins_by_finish", 0.0) or 0.0),
+        "sub_loss_rate": float(ufc_history.get("sub_loss_rate", 0.0) or 0.0),
+        "ko_tko_loss_rate": float(ufc_history.get("ko_tko_loss_rate", 0.0) or 0.0),
+        "decision_loss_rate": float(ufc_history.get("decision_loss_rate", 0.0) or 0.0),
+        "times_finished": float(ufc_history.get("times_finished", 0.0) or 0.0),
+        "finish_wins_round1_rate": float(ufc_history.get("finish_wins_round1_rate", 0.0) or 0.0),
+        "late_finish_wins_rate": float(ufc_history.get("late_finish_wins_rate", 0.0) or 0.0),
+        "avg_fight_minutes": float(ufc_history.get("avg_fight_minutes", 0.0) or 0.0),
+        "pace_score": float(ufc_history.get("pace_score", 0.0) or 0.0),
+        "cardio_risk": float(ufc_history.get("cardio_risk", 0.0) or 0.0),
+        "sample_confidence": float(ufc_history.get("sample_confidence", 0.0) or 0.0),
+        "stabilized_slpm": 0.0,
+        "stabilized_td_avg": 0.0,
+        "stabilized_sub_avg": 0.0,
+        "stabilized_kd_per15": 0.0,
+        "opp_quality_factor": 1.0,
+        "adjusted_slpm": 0.0,
+        "adjusted_td_avg": 0.0,
+        "adjusted_sub_avg": 0.0,
+        "adjusted_kd_per15": 0.0,
         "sos_score": 0.5,
     }
 
@@ -366,6 +536,31 @@ def parse_fighter_profile(url: str, cache: Dict[str, Any], include_sos: bool = T
         ]
         opponent_profiles = [opponent for opponent in opponent_profiles if opponent]
         profile["sos_score"] = compute_sos_score(opponent_profiles)
+
+    minutes = float(profile.get("ufc_cage_time_minutes", 0.0) or 0.0)
+    sos_score = float(profile.get("sos_score", 0.5) or 0.5)
+    opp_quality_factor = 0.85 + (sos_score * 0.30)
+
+    slpm_stable = stabilize_rate(float(profile.get("raw_slpm", 0.0) or 0.0), minutes, prior_rate=3.25, prior_minutes=90.0)
+    td_avg_stable = stabilize_rate(float(profile.get("raw_td_avg", 0.0) or 0.0), minutes, prior_rate=1.55, prior_minutes=90.0)
+    sub_avg_stable = stabilize_rate(float(profile.get("raw_sub_avg", 0.0) or 0.0), minutes, prior_rate=0.38, prior_minutes=90.0)
+    kd_per15_stable = stabilize_rate(float(profile.get("raw_kd_per15", 0.0) or 0.0), minutes, prior_rate=0.20, prior_minutes=90.0)
+
+    profile["stabilized_slpm"] = max(0.0, slpm_stable)
+    profile["stabilized_td_avg"] = max(0.0, td_avg_stable)
+    profile["stabilized_sub_avg"] = max(0.0, sub_avg_stable)
+    profile["stabilized_kd_per15"] = max(0.0, kd_per15_stable)
+    profile["opp_quality_factor"] = opp_quality_factor
+
+    profile["adjusted_slpm"] = max(0.0, slpm_stable * opp_quality_factor)
+    profile["adjusted_td_avg"] = max(0.0, td_avg_stable * opp_quality_factor)
+    profile["adjusted_sub_avg"] = max(0.0, sub_avg_stable * opp_quality_factor)
+    profile["adjusted_kd_per15"] = max(0.0, kd_per15_stable * opp_quality_factor)
+
+    profile["slpm"] = profile["adjusted_slpm"]
+    profile["td_avg"] = profile["adjusted_td_avg"]
+    profile["sub_avg"] = profile["adjusted_sub_avg"]
+    profile["knockdowns_per_15"] = profile["adjusted_kd_per15"]
 
     cache[cache_key] = profile
     if include_sos:
@@ -442,10 +637,22 @@ def compute_uncertainty_factor(profile_a: Dict[str, Any], profile_b: Dict[str, A
     present_a = sum(1 for key in stat_keys if float(profile_a.get(key, 0.0) or 0.0) > 0.0)
     present_b = sum(1 for key in stat_keys if float(profile_b.get(key, 0.0) or 0.0) > 0.0)
     completeness = (present_a + present_b) / float(len(stat_keys) * 2)
+    sample_conf_a = float(profile_a.get("sample_confidence", 0.0) or 0.0)
+    sample_conf_b = float(profile_b.get("sample_confidence", 0.0) or 0.0)
+    sample_confidence = (sample_conf_a + sample_conf_b) / 2.0
+    cardio_risk_a = float(profile_a.get("cardio_risk", 0.0) or 0.0)
+    cardio_risk_b = float(profile_b.get("cardio_risk", 0.0) or 0.0)
+    avg_cardio_risk = (cardio_risk_a + cardio_risk_b) / 2.0
 
-    factor = (volume_factor * 0.55) + (low_exp_guard * 0.25) + (completeness * 0.20)
+    factor = (volume_factor * 0.45) + (low_exp_guard * 0.20) + (completeness * 0.15) + (sample_confidence * 0.20)
     if is_wmma_division(weight_class_name):
         factor *= 0.92
+    if is_heavy_division(weight_class_name):
+        factor *= 0.90
+    elif (weight_class_name or "").strip() and ("flyweight" in weight_class_name.lower() or "bantamweight" in weight_class_name.lower()):
+        factor *= 1.03
+
+    factor *= max(0.86, 1.0 - (avg_cardio_risk * 0.10))
     return max(0.45, min(1.0, factor))
 
 
@@ -520,18 +727,18 @@ def compute_power_score(profile: Dict[str, Any]) -> float:
     if total == 0:
         return 0.0
     
-    slpm = float(profile.get("slpm", 0.0) or 0.0)
-    str_acc = float(profile.get("str_def", 0.0) or 0.0) if profile.get("str_def") else 0.0
-    
+    str_acc = float(profile.get("str_acc", 0.0) or 0.0)
+    kd_per15 = float(profile.get("knockdowns_per_15", 0.0) or 0.0)
+
     ko_win_rate = 0.0
     if wins > 0:
-        ko_wins = wins * 0.35 
+        ko_wins = int(profile.get("ko_tko_wins", 0) or 0)
         ko_win_rate = min(1.0, ko_wins / wins)
-    
+
     power_components = [
-        ko_win_rate * 0.50,
-        min(1.0, slpm / 8.0) * 0.35,
-        min(1.0, str_acc / 50.0) * 0.15
+        min(1.0, kd_per15 / 1.0) * 0.55,
+        ko_win_rate * 0.35,
+        min(1.0, str_acc / 55.0) * 0.10,
     ]
     
     power_score = sum(power_components)
@@ -555,21 +762,80 @@ def compute_finisher_score(profile: Dict[str, Any]) -> float:
         return 0.0
     
     slpm = float(profile.get("slpm", 0.0) or 0.0)
-    
-    finishing_rate = 0.5 
-    if total > 0:
-        finishing_wins = wins * 0.6
-        finishing_rate = min(1.0, finishing_wins / total)
-    
-    pressure_component = min(1.0, slpm / 6.5) if slpm > 0.0 else 0.0
-    
+    td_avg = float(profile.get("td_avg", 0.0) or 0.0)
+    early_finish_rate = float(profile.get("finish_wins_round1_rate", 0.0) or 0.0)
+    late_finish_rate = float(profile.get("late_finish_wins_rate", 0.0) or 0.0)
+    control_conversion = float(profile.get("top_control_minutes_per_td", 0.0) or 0.0)
+
+    finishing_rate = 0.0
+    if wins > 0:
+        finishing_wins = int(profile.get("wins_by_finish", 0) or 0)
+        finishing_rate = min(1.0, finishing_wins / wins)
+
+    pressure_pace = min(1.0, ((slpm * 0.65) + (td_avg * 0.35)) / 6.8)
+
     finisher_components = [
-        finishing_rate * 0.55,
-        pressure_component * 0.45
+        finishing_rate * 0.38,
+        min(1.0, early_finish_rate) * 0.12,
+        min(1.0, late_finish_rate) * 0.25,
+        pressure_pace * 0.17,
+        min(1.0, control_conversion / 3.0) * 0.08,
     ]
     
     finisher_score = sum(finisher_components)
     return min(1.0, finisher_score)
+
+
+def compute_round_winning_score(profile: Dict[str, Any]) -> float:
+    """
+    Estimate minute-winning / round-banking reliability.
+
+    This is intentionally NOT a finishing metric. It rewards fighters who
+    quietly win rounds through volume, defense, control retention, pace, and
+    late-fight reliability. Output is bounded to [0.0, 1.0] so it can be used
+    only as a support layer.
+    """
+    slpm = float(profile.get("stabilized_slpm", profile.get("slpm", 0.0)) or 0.0)
+    sapm = float(profile.get("sapm", 0.0) or 0.0)
+    str_def = float(profile.get("str_def", 0.0) or 0.0)
+    td_def = float(profile.get("td_def", 0.0) or 0.0)
+    control_minutes_per_15 = float(profile.get("control_minutes_per_15", 0.0) or 0.0)
+    top_control_minutes_per_td = float(profile.get("top_control_minutes_per_td", 0.0) or 0.0)
+    ground_time_ratio = float(profile.get("ground_time_ratio", 0.0) or 0.0)
+    pace_score = float(profile.get("pace_score", 0.0) or 0.0)
+    cardio_risk = float(profile.get("cardio_risk", 0.0) or 0.0)
+    late_finish_rate = float(profile.get("late_finish_wins_rate", 0.0) or 0.0)
+    avg_fight_minutes = float(profile.get("avg_fight_minutes", 0.0) or 0.0)
+
+    strike_diff = max(-3.0, min(3.0, slpm - sapm))
+    striking_component = (strike_diff + 3.0) / 6.0
+
+    defense_component = min(1.0, max(0.0,
+        (str_def / 100.0) * 0.60 + (td_def / 100.0) * 0.40
+    ))
+
+    control_component = min(1.0, max(0.0,
+        (control_minutes_per_15 / 6.0) * 0.55
+        + (top_control_minutes_per_td / 3.5) * 0.25
+        + (ground_time_ratio / 0.45) * 0.20
+    ))
+
+    pace_component = min(1.0, max(0.0, pace_score / 0.70))
+
+    late_reliability = min(1.0, max(0.0,
+        (1.0 - min(1.0, cardio_risk)) * 0.65
+        + min(1.0, late_finish_rate) * 0.20
+        + min(1.0, avg_fight_minutes / 15.0) * 0.15
+    ))
+
+    round_score = (
+        striking_component * 0.35
+        + defense_component * 0.25
+        + control_component * 0.18
+        + pace_component * 0.10
+        + late_reliability * 0.12
+    )
+    return min(1.0, max(0.0, round_score))
 
 
 def apply_diminishing_returns(raw_bonus: float, compression_factor: float = 0.8) -> float:
@@ -592,16 +858,44 @@ def tdd_liability(td_def: float) -> float:
     80%+ = essentially immune. Below 50% = catastrophic collapse zone.
     Sharper thresholds than before — regime collapse, not smooth scaling.
     """
-    if td_def >= 80.0:
-        return 0.02   # immune — elite TDD walls off wrestling completely
-    elif td_def >= 70.0:
-        return 0.10
-    elif td_def >= 60.0:
-        return 0.30
-    elif td_def >= 50.0:
-        return 0.65
-    else:
-        return 0.95   # catastrophic — gets controlled every single fight
+    x = (td_def - 58.0) / 7.5
+    liability = 1.0 / (1.0 + math.exp(x))
+    return max(0.02, min(0.95, liability))
+
+
+def compute_grappling_entry_prob(attacker: Dict[str, Any], defender: Dict[str, Any]) -> float:
+    """
+    Scalar [0.10, 1.0] representing how reliably the attacker can initiate
+    and sustain grappling against THIS specific defender.
+
+    Grappling is not a static attribute — it is a CONDITIONAL phase that
+    can only happen if the attacker survives the striker's defensive wall
+    and closes the distance.  Three penalizers:
+
+    1. Defender striking defense   — keeps the attacker out / punishes entries.
+    2. Defender reach advantage    — longer limbs make closing distance costlier.
+    3. Attacker damage absorbed    — high SApM means attacker gets hurt every
+                                     time they try to engage; repeated failed
+                                     entries accumulate and reduce success rate.
+    """
+    # 1. Defender can keep fighter at bay with strikes
+    str_def_def = float(defender.get("str_def", 50.0) or 50.0) / 100.0
+    defense_penalty = 1.0 - str_def_def * 0.50   # 0% def → no reduction; 100% → -50%
+
+    # 2. Defender's reach advantage over the attacker
+    reach_att = float(attacker.get("reach_cm", 175.0) or 175.0)
+    reach_def = float(defender.get("reach_cm", 175.0) or 175.0)
+    reach_gap = max(0.0, (reach_def - reach_att)) / 20.0   # 0→1 over a 20 cm gap
+    reach_penalty = 1.0 - min(0.40, reach_gap * 0.40)
+
+    # 3. Attacker absorbs a lot of damage — gets hit repeatedly on entry
+    sapm_att = float(attacker.get("sapm", 3.5) or 3.5)
+    AVG_SAPM = 3.5
+    damage_on_entry = max(0.0, (sapm_att - AVG_SAPM) / 7.0)   # 0 at avg, 0.5 at sapm=7.0
+    damage_penalty  = 1.0 - min(0.50, damage_on_entry)
+
+    entry_prob = defense_penalty * reach_penalty * damage_penalty
+    return max(0.10, min(1.0, entry_prob))
 
 
 def str_def_liability(str_def: float) -> float:
@@ -743,6 +1037,57 @@ def compute_wrestling_entry_factor(attacker: Dict[str, Any], defender: Dict[str,
     return max(0.25, 1.0 - p_entry_blocked * 0.6)
 
 
+def compute_effective_pressure(attacker: Dict[str, Any], defender: Dict[str, Any]) -> float:
+    td_avg_attacker = float(attacker.get("td_avg", 0.0) or 0.0)
+    td_def_defender = float(defender.get("td_def", 0.0) or 0.0)
+    anti_wrestling_defender = compute_anti_wrestling_score(defender)
+
+    p_chain = min(1.0, td_avg_attacker / 4.5)
+    p_entry = compute_wrestling_entry_factor(attacker, defender)
+    p_control = tdd_liability(td_def_defender) * (1.0 - anti_wrestling_defender * 0.45)
+    p_initiate = 1.0 - (1.0 - p_chain) * (1.0 - p_entry * 0.15)
+
+    return max(0.05, 1.0 - (1.0 - p_initiate) * (1.0 - p_control * p_chain))
+
+
+def compute_regime_scores(profile_a: Dict[str, Any], profile_b: Dict[str, Any]) -> Dict[str, float]:
+    td_avg_a = float(profile_a.get("td_avg", 0.0) or 0.0)
+    td_avg_b = float(profile_b.get("td_avg", 0.0) or 0.0)
+    td_def_a = float(profile_a.get("td_def", 0.0) or 0.0)
+    td_def_b = float(profile_b.get("td_def", 0.0) or 0.0)
+    sub_avg_a = float(profile_a.get("sub_avg", 0.0) or 0.0)
+    sub_avg_b = float(profile_b.get("sub_avg", 0.0) or 0.0)
+    str_def_a = float(profile_a.get("str_def", 0.0) or 0.0)
+    str_def_b = float(profile_b.get("str_def", 0.0) or 0.0)
+
+    wrestle_a = (td_avg_a / 3.5) * tdd_liability(td_def_b)
+    wrestle_b = (td_avg_b / 3.5) * tdd_liability(td_def_a)
+    sub_a = sub_avg_a * tdd_liability(td_def_b)
+    sub_b = sub_avg_b * tdd_liability(td_def_a)
+    power_a = compute_power_score(profile_a)
+    power_b = compute_power_score(profile_b)
+    strike_a = power_a * str_def_liability(str_def_b)
+    strike_b = power_b * str_def_liability(str_def_a)
+
+    wrestling_score = wrestle_a - wrestle_b
+    submission_score = sub_a - sub_b
+    striking_score = strike_a - strike_b
+    contested_score = max(0.0, 1.0 - max(abs(wrestling_score), abs(submission_score), abs(striking_score)))
+
+    return {
+        "wrestle_a": wrestle_a,
+        "wrestle_b": wrestle_b,
+        "sub_a": sub_a,
+        "sub_b": sub_b,
+        "strike_a": strike_a,
+        "strike_b": strike_b,
+        "wrestling_regime_score": wrestling_score,
+        "submission_regime_score": submission_score,
+        "striking_regime_score": striking_score,
+        "contested_score": contested_score,
+    }
+
+
 def detect_fragility_flags(profile: Dict[str, Any], opponent_profile: Dict[str, Any] | None = None) -> tuple[bool, float]:
     """
     Detect brittle fighters or dangerous disparities.
@@ -811,8 +1156,28 @@ def matchup_score(profile_a: Dict[str, Any], profile_b: Dict[str, Any], weight_c
         + ((str_def_a - str_def_b) / 100.0) * 0.7
     )
 
+    kd_per15_a = float(profile_a.get("knockdowns_per_15", 0.0) or 0.0)
+    kd_per15_b = float(profile_b.get("knockdowns_per_15", 0.0) or 0.0)
+    kd_abs_a = float(profile_a.get("knockdowns_absorbed_per_15", 0.0) or 0.0)
+    kd_abs_b = float(profile_b.get("knockdowns_absorbed_per_15", 0.0) or 0.0)
+    knockdown_edge = ((kd_per15_a - kd_per15_b) * 0.38) + ((kd_abs_b - kd_abs_a) * 0.24)
+    striking_edge += knockdown_edge
+
     reach_diff_cm = float(profile_a.get("reach_cm", 0.0) or 0.0) - float(profile_b.get("reach_cm", 0.0) or 0.0)
     reach_combo_bonus = (reach_diff_cm / 20.0) * max(0.0, striking_edge + 0.15)
+
+    stance_a = str(profile_a.get("stance", "") or "").lower()
+    stance_b = str(profile_b.get("stance", "") or "").lower()
+    stance_adjust = 0.0
+    if stance_a and stance_b and stance_a != stance_b:
+        southpaw_a = "southpaw" in stance_a
+        southpaw_b = "southpaw" in stance_b
+        if southpaw_a != southpaw_b:
+            if southpaw_a:
+                stance_adjust += 0.06 + (0.02 if reach_diff_cm > 0 else 0.0)
+            if southpaw_b:
+                stance_adjust -= 0.06 + (0.02 if reach_diff_cm < 0 else 0.0)
+    striking_edge += stance_adjust
 
     td_avg_a = float(profile_a.get("td_avg", 0.0) or 0.0)
     td_avg_b = float(profile_b.get("td_avg", 0.0) or 0.0)
@@ -942,6 +1307,12 @@ def matchup_score(profile_a: Dict[str, Any], profile_b: Dict[str, Any], weight_c
     raw_bonus += ((1.0 - anti_wrestling_b) - (1.0 - anti_wrestling_a)) * 0.06
 
     matchup_bonus = apply_diminishing_returns(raw_bonus, compression_factor=0.8)
+
+    sample_conf_a = float(profile_a.get("sample_confidence", 0.0) or 0.0)
+    sample_conf_b = float(profile_b.get("sample_confidence", 0.0) or 0.0)
+    avg_sample_conf = (sample_conf_a + sample_conf_b) / 2.0
+    bonus_confidence_scale = 0.72 + (0.28 * avg_sample_conf)
+    matchup_bonus *= bonus_confidence_scale
 
     age_adjust = 0.0
     age_a = fighter_age(profile_a)
@@ -1158,70 +1529,59 @@ def build_explanation(
 
 def detect_fight_regime(profile_a: Dict[str, Any], profile_b: Dict[str, Any]) -> tuple[str, str | None]:
     """
-    Classify the dominant fight mode using BOTH threshold signal strength
-    AND a minimum 1.4x dominance edge over opponent in the same path.
+    Classify dominant fight mode using RELATIVE signed deltas.
+
+    For each domain compute (score_a - score_b).  The domain with the largest
+    absolute delta wins the regime label — but only if it also has a
+    meaningful lead over the second-best domain (DOMINANCE_RATIO) AND exceeds
+    a minimum noise floor (MIN_DELTA).  Otherwise the fight is contested.
 
     Returns (regime, dominant_side) where dominant_side is 'a', 'b', or None.
     """
-    td_avg_a  = float(profile_a.get("td_avg",  0.0) or 0.0)
-    td_avg_b  = float(profile_b.get("td_avg",  0.0) or 0.0)
-    td_def_a  = float(profile_a.get("td_def",  0.0) or 0.0)
-    td_def_b  = float(profile_b.get("td_def",  0.0) or 0.0)
-    sub_avg_a = float(profile_a.get("sub_avg", 0.0) or 0.0)
-    sub_avg_b = float(profile_b.get("sub_avg", 0.0) or 0.0)
-    str_def_a = float(profile_a.get("str_def", 0.0) or 0.0)
-    str_def_b = float(profile_b.get("str_def", 0.0) or 0.0)
+    regime_scores = compute_regime_scores(profile_a, profile_b)
+    delta_wrestling   = regime_scores["wrestling_regime_score"]   # wrestle_a - wrestle_b
+    delta_submission  = regime_scores["submission_regime_score"]  # sub_a - sub_b
+    delta_striking    = regime_scores["striking_regime_score"]    # strike_a - strike_b
 
-    wrestle_a = (td_avg_a / 3.5) * tdd_liability(td_def_b)
-    wrestle_b = (td_avg_b / 3.5) * tdd_liability(td_def_a)
-    sub_a     = sub_avg_a * tdd_liability(td_def_b)
-    sub_b     = sub_avg_b * tdd_liability(td_def_a)
-    power_a   = compute_power_score(profile_a)
-    power_b   = compute_power_score(profile_b)
-    strike_a  = power_a * str_def_liability(str_def_b)
-    strike_b  = power_b * str_def_liability(str_def_a)
+    # Minimum absolute advantage to claim a regime — filters out noise
+    MIN_DELTA = 0.06
+    # Winner must be this many times larger than the second-best |delta|
+    DOMINANCE_RATIO = 1.40
 
-    # Require BOTH: absolute threshold AND ≥1.4x edge over opponent
-    EDGE_RATIO    = 1.40
-    WRESTLE_THRESH = 0.22
-    SUB_THRESH     = 0.30
-    STRIKE_THRESH  = 0.22
+    candidates = {
+        'wrestling_control': delta_wrestling,
+        'submission_threat': delta_submission,
+        'striking_exchange': delta_striking,
+    }
+    # Sort by absolute magnitude descending
+    ranked = sorted(candidates.items(), key=lambda kv: abs(kv[1]), reverse=True)
+    top_name, top_delta   = ranked[0]
+    _,         second_val = ranked[1]
 
-    if wrestle_a >= WRESTLE_THRESH and wrestle_a >= wrestle_b * EDGE_RATIO:
-        return 'wrestling_control', 'a'
-    if wrestle_b >= WRESTLE_THRESH and wrestle_b >= wrestle_a * EDGE_RATIO:
-        return 'wrestling_control', 'b'
-    if sub_a >= SUB_THRESH and sub_a >= sub_b * EDGE_RATIO:
-        return 'submission_threat', 'a'
-    if sub_b >= SUB_THRESH and sub_b >= sub_a * EDGE_RATIO:
-        return 'submission_threat', 'b'
-    if strike_a >= STRIKE_THRESH and strike_a >= strike_b * EDGE_RATIO:
-        return 'striking_exchange', 'a'
-    if strike_b >= STRIKE_THRESH and strike_b >= strike_a * EDGE_RATIO:
-        return 'striking_exchange', 'b'
+    # Claim a regime only if it clears the noise floor AND has a clear lead
+    if abs(top_delta) >= MIN_DELTA and abs(top_delta) >= abs(second_val) * DOMINANCE_RATIO:
+        dominant_side = 'a' if top_delta > 0 else 'b'
+        return top_name, dominant_side
+
     return 'contested', None
 
 
-def compute_logit_components(
+def compute_logit_components_detailed(
     profile_a: Dict[str, Any],
     profile_b: Dict[str, Any],
     weight_class_name: str,
-) -> tuple[float, float, float, str, str]:
+) -> Dict[str, Any]:
     """
-    Full gated dominant-path model with hard overrides and regime multipliers.
+    Regime-gated conditional fight simulator.
 
     Architecture:
-    1. Compute independent fight path scores (wrestling, striking, submission).
-    2. Apply hard overrides to force dominant path when clear mismatch exists.
-    3. Select dominant path and apply regime multiplier to IT ONLY.
-    4. Non-dominant paths contribute a small noise floor (~0.10 each).
-
-    Returns:
-      (dominant_path_logit, secondary_logit, regime_multiplier,
-       dominant_path_name, regime)
-    The caller assembles:
-      final_logit = base_logit + regime_multiplier * dominant_path_logit
-                    + secondary_logit + age_adjust
+    1. Each domain produces two non-negative unilateral advantage scores
+       (adv_a, adv_b).  Each is tanh-normalized independently then
+       differenced → domain_logit stays well-scaled in ~[-1.0, +1.0].
+    2. Regime detection picks ONE domain as 'main', the others as 'support'.
+    3. regime_strength amplifies the main path;  regime_weakness compresses
+       the support blend so non-dominant paths cannot overrule the regime.
+    4. In contested fights all three paths blend equally at unit scale.
     """
     slpm_a    = float(profile_a.get("slpm",    0.0) or 0.0)
     slpm_b    = float(profile_b.get("slpm",    0.0) or 0.0)
@@ -1242,144 +1602,268 @@ def compute_logit_components(
     tdd_lib_b = tdd_liability(td_def_b)
     power_a   = compute_power_score(profile_a)
     power_b   = compute_power_score(profile_b)
+    finisher_a = compute_finisher_score(profile_a)
+    finisher_b = compute_finisher_score(profile_b)
+
+    td_vol_a   = min(1.0, td_avg_a / 3.5)
+    td_vol_b   = min(1.0, td_avg_b / 3.5)
+    tdd_vuln_a = math.sqrt(max(0.08, 1.0 - td_def_a / 100.0))
+    tdd_vuln_b = math.sqrt(max(0.08, 1.0 - td_def_b / 100.0))
+
+    sample_conf_a = float(profile_a.get("sample_confidence", 0.30) or 0.30)
+    sample_conf_b = float(profile_b.get("sample_confidence", 0.30) or 0.30)
+    sample_conf = min(sample_conf_a, sample_conf_b)
+    domain_scale = max(0.65, min(1.05, 0.72 + (sample_conf * 0.55)))
 
     # -----------------------------------------------------------------------
-    # PATH 1 — Wrestling control
-    # Score = (TD volume * opponent TDD vulnerability) differential.
+    # ENTRY GATING
+    # Grappling is a CONDITIONAL phase — it only happens if the attacker
+    # can reliably close the distance and survive the entry attempt.
+    # entry_prob_x gates how much of a fighter's raw grappling/submission
+    # advantage actually translates into real logit contribution.
     # -----------------------------------------------------------------------
-    td_vol_a  = min(1.0, td_avg_a / 3.5)
-    td_vol_b  = min(1.0, td_avg_b / 3.5)
-    tdd_vuln_a = max(0.0, 1.0 - td_def_a / 100.0)
-    tdd_vuln_b = max(0.0, 1.0 - td_def_b / 100.0)
-    w_dom_a   = td_vol_a * tdd_vuln_b
-    w_dom_b   = td_vol_b * tdd_vuln_a
-    wrestling_raw = (w_dom_a - w_dom_b) * 2.5
+    entry_prob_a = compute_grappling_entry_prob(profile_a, profile_b)
+    entry_prob_b = compute_grappling_entry_prob(profile_b, profile_a)
 
     # -----------------------------------------------------------------------
-    # PATH 2 — Striking exchange
-    # Score = net striking efficiency + power + defense + absorption.
+    # DOMAIN 1 — GRAPPLING
+    # adv_a = A's takedown output projected onto B's defensive vulnerability,
+    # GATED by A's entry success probability.
+    # Without entry gating, a high-TD-avg fighter gets full credit even when
+    # they get hit repeatedly trying to close distance.
+    # Normalise by 0.50 so a typical strong wrestler (adv ≈ 0.35) gives
+    # tanh(0.70) ≈ 0.60 — a clear but not maxed logit.
     # -----------------------------------------------------------------------
-    slpm_edge   = (slpm_a - slpm_b) * 0.20
-    def_edge    = ((str_def_a - str_def_b) / 100.0) * 0.35
-    absorb_edge = (sapm_b - sapm_a) * 0.14
-    power_edge  = (power_a - power_b) * 0.50
-    reach_diff  = (reach_a - reach_b) / 10.0
-    reach_bonus = reach_diff * max(0.0, (slpm_edge + def_edge) * 0.12)
-    striking_raw  = (slpm_edge + def_edge + absorb_edge + power_edge + reach_bonus) * 2.0
-
-    # -----------------------------------------------------------------------
-    # PATH 3 — Submission threat
-    # Score = sub avg conditioned on TDD vulnerability (position access)
-    # and grappling transition efficiency.
-    # -----------------------------------------------------------------------
-    sub_threat_a = sub_avg_a * tdd_lib_b * (1.0 + td_vol_a * 0.5)
-    sub_threat_b = sub_avg_b * tdd_lib_a * (1.0 + td_vol_b * 0.5)
-    submission_raw = (sub_threat_a - sub_threat_b) * 2.0
+    grappling_adv_a = max(0.0, td_vol_a * tdd_vuln_b * entry_prob_a)   # A projects onto B
+    grappling_adv_b = max(0.0, td_vol_b * tdd_vuln_a * entry_prob_b)   # B projects onto A
+    G_NORM = 0.50
+    grappling_logit = math.tanh(grappling_adv_a / G_NORM) - math.tanh(grappling_adv_b / G_NORM)
+    grappling_logit *= domain_scale
 
     # -----------------------------------------------------------------------
-    # Entropy-driven path scaling
-    # High mismatch (low entropy): allow stronger path expression.
-    # Balanced fights (high entropy): compress path magnitudes.
-    # This removes fixed under-weighting of submission paths.
+    # DOMAIN 2 — STRIKING
+    # Per-fighter absolute striking advantage composed of volume, defense,
+    # absorption exposure, and power.  Reach contributes only to the already-
+    # advantaged side.  Both values are non-negative by construction.
+    # Normalise by 1.50 so a typical strong striker (adv ≈ 1.5) gives
+    # tanh(1.0) ≈ 0.76.
     # -----------------------------------------------------------------------
-    raw_strengths = [abs(wrestling_raw), abs(striking_raw), abs(submission_raw)]
-    strength_sum = sum(raw_strengths)
-    if strength_sum > 1e-9:
-        normalized = [value / strength_sum for value in raw_strengths]
-        entropy = -sum(
-            part * math.log(part)
-            for part in normalized
-            if part > 0.0
-        ) / math.log(3.0)
-    else:
-        entropy = 1.0
-
-    sorted_strengths = sorted(raw_strengths, reverse=True)
-    edge_strength = 0.0
-    if sorted_strengths[0] > 1e-9:
-        edge_strength = (sorted_strengths[0] - sorted_strengths[1]) / sorted_strengths[0]
-
-    mismatch_strength = (1.0 - entropy) * 0.5 + edge_strength * 0.5
-    path_scale = 0.68 + (0.50 * mismatch_strength)  # range ~[0.68, 1.18]
-
-    wrestling_path = math.tanh(wrestling_raw) * path_scale
-    striking_path = math.tanh(striking_raw) * path_scale
-    sub_path = math.tanh(submission_raw) * path_scale
-
-    # -----------------------------------------------------------------------
-    # HARD OVERRIDES — force dominant path on clear structural mismatches
-    # These bypass the max() selection when a decisive physical mismatch exists.
-    # -----------------------------------------------------------------------
-    forced_path: str | None = None
-
-    # Wrestling override: elite volume + opponent can't stop takedowns
-    if td_avg_a > 3.5 and td_def_b < 55.0:
-        forced_path = 'wrestling'
-    elif td_avg_b > 3.5 and td_def_a < 55.0:
-        forced_path = 'wrestling'
-
-    # KO override: heavy power vs weak chin
-    if forced_path is None:
-        if power_a > 0.65 and str_def_b < 45.0:
-            forced_path = 'striking'
-        elif power_b > 0.65 and str_def_a < 45.0:
-            forced_path = 'striking'
-
-    # Submission override: elite sub threat vs poor TDD
-    if forced_path is None:
-        if sub_avg_a > 1.5 and td_def_b < 50.0:
-            forced_path = 'submission'
-        elif sub_avg_b > 1.5 and td_def_a < 50.0:
-            forced_path = 'submission'
+    reach_diff_cm = reach_a - reach_b
+    sapm_term_b = math.log1p(min(6.0, max(0.0, sapm_b))) * 0.22
+    sapm_term_a = math.log1p(min(6.0, max(0.0, sapm_a))) * 0.22
+    striking_adv_a = (
+        slpm_a * 0.20
+        + (str_def_a / 100.0) * 0.35
+        + sapm_term_b
+        + power_a * 0.50
+        + max(0.0,  reach_diff_cm / 100.0) * 0.06
+    )
+    striking_adv_b = (
+        slpm_b * 0.20
+        + (str_def_b / 100.0) * 0.35
+        + sapm_term_a
+        + power_b * 0.50
+        + max(0.0, -reach_diff_cm / 100.0) * 0.06
+    )
+    striking_adv_a = max(0.0, striking_adv_a)
+    striking_adv_b = max(0.0, striking_adv_b)
+    S_NORM = 1.50
+    striking_logit = math.tanh(striking_adv_a / S_NORM) - math.tanh(striking_adv_b / S_NORM)
+    striking_logit *= domain_scale
 
     # -----------------------------------------------------------------------
-    # Gate: select dominant path
+    # DOMAIN 3 — SUBMISSION
+    # Sub threat is gated by the opponent's TDD vulnerability and positional
+    # access (td_vol as proxy for takedown entry).  Both values ≥ 0.
+    # Normalise by 0.40 so sub_avg 0.8, tdd_lib 0.5, access factor 1.2 →
+    # penalty tanh(0.48/0.40) ≈ tanh(1.2) ≈ 0.83.
     # -----------------------------------------------------------------------
-    path_scores: Dict[str, float] = {
-        'wrestling':  wrestling_path,
-        'striking':   striking_path,
-        'submission': sub_path,
+    # Submission also requires grappling entry — gate by entry probability.
+    # Use additive stacking to avoid multiplicative explosion in low samples.
+    sub_adv_a = max(0.0, ((sub_avg_a * 0.55) + (tdd_lib_b * 0.25) + (td_vol_a * 0.20)) * entry_prob_a)
+    sub_adv_b = max(0.0, ((sub_avg_b * 0.55) + (tdd_lib_a * 0.25) + (td_vol_b * 0.20)) * entry_prob_b)
+    B_NORM = 0.45
+    submission_logit = math.tanh(sub_adv_a / B_NORM) - math.tanh(sub_adv_b / B_NORM)
+    submission_logit *= domain_scale
+
+    # -----------------------------------------------------------------------
+    # INTERACTION — effective grappling pressure differential
+    # Gated by entry probability: a fighter with low entry reliability cannot
+    # convert their raw pressure rating into actual fight control.
+    # -----------------------------------------------------------------------
+    eff_pressure_a_to_b = compute_effective_pressure(profile_a, profile_b)
+    eff_pressure_b_to_a = compute_effective_pressure(profile_b, profile_a)
+    gated_pressure_a = eff_pressure_a_to_b * entry_prob_a
+    gated_pressure_b = eff_pressure_b_to_a * entry_prob_b
+    interaction_logit = math.tanh((gated_pressure_a - gated_pressure_b) * 1.1) * 0.22
+
+    # -----------------------------------------------------------------------
+    # ROUND-WINNING SUPPORT LAYER — bounded, finishing-aware tie-breaker.
+    # This should help decision equity / minute-winning profiles without ever
+    # dominating the regime engine or turning the model into a generic volume
+    # system. High-finishing matchups damp this term slightly.
+    # -----------------------------------------------------------------------
+    round_win_score_a = compute_round_winning_score(profile_a)
+    round_win_score_b = compute_round_winning_score(profile_b)
+    round_win_edge = round_win_score_a - round_win_score_b
+    finish_volatility = min(1.0, ((power_a + finisher_a + power_b + finisher_b) / 4.0))
+    archetype_a = classify_archetype(profile_a)
+    archetype_b = classify_archetype(profile_b)
+    decision_archetype_weights = {
+        "technical_striker": 0.55,
+        "pressure_wrestler": 0.50,
+        "balanced": 0.30,
+        "submission_grappler": 0.12,
+        "power_striker": 0.08,
     }
+    archetype_decision_bias = min(
+        1.0,
+        decision_archetype_weights.get(archetype_a, 0.20) + decision_archetype_weights.get(archetype_b, 0.20),
+    )
+    control_environment = min(1.0, (compute_control_proxy(profile_a) + compute_control_proxy(profile_b)) / 1.6)
+    round_bank_environment = min(1.0, (round_win_score_a + round_win_score_b) / 1.30)
+    decision_likelihood = min(
+        1.0,
+        max(
+            0.0,
+            (1.0 - finish_volatility) * 0.48
+            + archetype_decision_bias * 0.28
+            + control_environment * 0.14
+            + round_bank_environment * 0.10,
+        ),
+    )
 
-    if forced_path is not None:
-        dominant_path_name = forced_path
-    else:
-        dominant_path_name = max(path_scores, key=lambda k: abs(path_scores[k]))
+    regime_preview, _ = detect_fight_regime(profile_a, profile_b)
 
-    # Blend: dominant path at 0.7, second-best at 0.3.
-    # Preserves a second win condition (e.g. wrestler who also has KO power)
-    # without reverting to averaging-everything.
-    sorted_paths = sorted(path_scores.items(), key=lambda kv: abs(kv[1]), reverse=True)
-    dominant_path_logit = sorted_paths[0][1] * 0.7 + sorted_paths[1][1] * 0.3
-    # Third path: tiny residual noise floor only
-    secondary_logit = sorted_paths[2][1] * 0.08
+    round_win_weight = 0.16 * (1.0 - finish_volatility * 0.35)
+    round_win_weight *= (1.0 + decision_likelihood * 0.55)
+
+    # Higher decision-equity influence in decision-leaning regimes; damp in
+    # explosive regimes so this stays a support layer.
+    if regime_preview in {"contested", "wrestling_control", "clean_dominance", "coherence_realigned"}:
+        round_win_weight *= 1.10
+    elif regime_preview in {"striking_exchange", "submission_threat"}:
+        round_win_weight *= 0.85
+
+    round_win_weight = min(0.26, max(0.10, round_win_weight))
+    round_win_logit = math.tanh(round_win_edge * 2.4) * round_win_weight
+    interaction_logit += round_win_logit
 
     # -----------------------------------------------------------------------
-    # Regime classification → multiplier applied ONLY to dominant path
-    # Multiplier strength scales with signal magnitude (avoid small-edge amplification)
+    # REGIME GATING — select main path and compress non-dominant paths
+    #
+    # regime_strength amplifies the domain that the fight is being fought in.
+    # regime_weakness compresses everything else so the regime actually gates
+    # instead of just nudging a weighted average.
     # -----------------------------------------------------------------------
     regime, dominant_side = detect_fight_regime(profile_a, profile_b)
-    dom_abs = abs(dominant_path_logit)
+    regime_scores = compute_regime_scores(profile_a, profile_b)
 
     if regime == 'wrestling_control':
-        # 1.25 baseline, scales up to 1.40 for clear dominance edges
-        regime_multiplier = 1.25 + min(0.15, dom_abs * 0.18)
-    elif regime == 'submission_threat':
-        regime_multiplier = 1.20 + min(0.12, dom_abs * 0.15)
+        main_logit    = grappling_logit
+        support_logit = striking_logit * 0.25 + submission_logit * 0.15
+        regime_strength = 1.42
+        regime_weakness = 0.50
+        dominant_path_name = 'wrestling'
+
     elif regime == 'striking_exchange':
-        regime_multiplier = 1.15 + min(0.10, dom_abs * 0.12)
-    else:
-        regime_multiplier = 1.00 + min(0.08, dom_abs * 0.06)
+        main_logit    = striking_logit
+        support_logit = grappling_logit * 0.30 + submission_logit * 0.20
+        regime_strength = 1.42
+        regime_weakness = 0.50
+        dominant_path_name = 'striking'
 
-    # Flip multiplier direction if regime dominant is B
-    # (dominant_path_logit already carries sign, multiplier must preserve it)
-    if dominant_side == 'b' and dominant_path_logit > 0:
-        # Regime says B dominates but path score favors A — contested effectively
-        regime_multiplier = 1.0
-    if dominant_side == 'a' and dominant_path_logit < 0:
-        regime_multiplier = 1.0
+    elif regime == 'submission_threat':
+        main_logit    = submission_logit
+        support_logit = grappling_logit * 0.40 + striking_logit * 0.25
+        regime_strength = 1.42
+        regime_weakness = 0.50
+        dominant_path_name = 'submission'
 
-    return dominant_path_logit, secondary_logit, regime_multiplier, dominant_path_name, regime
+    else:  # contested — low amplification, let domains speak naturally
+        main_logit    = striking_logit * 0.4 + grappling_logit * 0.4 + submission_logit * 0.2
+        support_logit = 0.0
+        regime_strength = 1.15
+        regime_weakness = 1.0
+        dominant_path_name = 'contested'
+
+    # Coherence guard: if the regime label contradicts the quantitative signals,
+    # re-evaluate based on domain agreement instead of falling back to contested.
+    #
+    # CLEAN DOMINANCE: if all three domain logits agree in sign, one fighter
+    # wins every phase — this should be amplified, NOT compressed to 50/50.
+    #   Amplification: 1.4× (clear but not maxed — hardware reality can upset sims)
+    #
+    # TRUE CONTESTED: only when domains genuinely split (mixed signs), meaning
+    # the fight is structurally balanced.
+    all_agree_a = (striking_logit > 0 and grappling_logit > 0 and submission_logit > 0)
+    all_agree_b = (striking_logit < 0 and grappling_logit < 0 and submission_logit < 0)
+
+    if all_agree_a or all_agree_b:
+        # All domains point the same direction — amplify the consensus signal
+        main_logit    = striking_logit * 0.4 + grappling_logit * 0.4 + submission_logit * 0.2
+        support_logit = 0.0
+        regime_strength = 1.42
+        regime_weakness = 1.0
+        dominant_path_name = 'clean_dominance'
+        regime = 'clean_dominance'
+    elif (dominant_side == 'b' and main_logit > 0) or (dominant_side == 'a' and main_logit < 0):
+        # Regime label contradicts quantitative domains: realign to the single
+        # strongest domain instead of flattening into contested.
+        domain_candidates = [
+            ('striking', striking_logit),
+            ('wrestling', grappling_logit),
+            ('submission', submission_logit),
+        ]
+        dominant_path_name, main_logit = max(domain_candidates, key=lambda x: abs(x[1]))
+        support_logit = 0.0
+        regime_strength = 1.25
+        regime_weakness = 1.0
+        regime = 'coherence_realigned'
+
+    return {
+        # Primary assembly fields (used by main())
+        "main_logit":       main_logit,
+        "support_logit":    support_logit,
+        "regime_strength":  regime_strength,
+        "regime_weakness":  regime_weakness,
+        "interaction_logit": interaction_logit,
+        "round_win_score_a": round_win_score_a,
+        "round_win_score_b": round_win_score_b,
+        "round_win_logit": round_win_logit,
+        "round_win_weight": round_win_weight,
+        "decision_likelihood": decision_likelihood,
+        "regime":           regime,
+        "dominant_path_name": dominant_path_name,
+        # Domain-level diagnostics
+        "striking_logit":   striking_logit,
+        "grappling_logit":  grappling_logit,
+        "submission_logit": submission_logit,
+        "effective_pressure_a_to_b": eff_pressure_a_to_b,
+        "effective_pressure_b_to_a": eff_pressure_b_to_a,
+        "regime_scores":    regime_scores,
+        "entry_prob_a":     entry_prob_a,
+        "entry_prob_b":     entry_prob_b,
+        # Legacy compat keys (debug script + calibration block)
+        "dominant_path_logit": main_logit,
+        "secondary_logit":  support_logit,
+        "regime_multiplier": regime_strength,
+    }
+
+
+def compute_logit_components(
+    profile_a: Dict[str, Any],
+    profile_b: Dict[str, Any],
+    weight_class_name: str,
+) -> tuple[float, float, float, str, str]:
+    details = compute_logit_components_detailed(profile_a, profile_b, weight_class_name)
+    return (
+        float(details.get("dominant_path_logit", 0.0) or 0.0),
+        float(details.get("secondary_logit", 0.0) or 0.0),
+        float(details.get("regime_multiplier", 1.0) or 1.0),
+        str(details.get("dominant_path_name", "contested") or "contested"),
+        str(details.get("regime", "contested") or "contested"),
+    )
 
 
 def calibrate_probability(probability: float) -> float:
@@ -1400,7 +1884,13 @@ def apply_matchup_correction(prob_model_a: float, prob_profile_a: float | None) 
     return corrected, correction
 
 
-def method_probabilities(winner_profile: Dict[str, Any], loser_profile: Dict[str, Any], confidence: float) -> Dict[str, float]:
+def method_probabilities(
+    winner_profile: Dict[str, Any],
+    loser_profile: Dict[str, Any],
+    confidence: float,
+    method_context: Dict[str, Any] | None = None,
+) -> Dict[str, float]:
+    method_context = method_context or {}
     winner_slpm = float(winner_profile.get("slpm", 0.0) or 0.0)
     loser_slpm = float(loser_profile.get("slpm", 0.0) or 0.0)
     winner_sub_avg = float(winner_profile.get("sub_avg", 0.0) or 0.0)
@@ -1414,24 +1904,138 @@ def method_probabilities(winner_profile: Dict[str, Any], loser_profile: Dict[str
     loser_str_def = float(loser_profile.get("str_def", 0.0) or 0.0)
     winner_td_def = float(winner_profile.get("td_def", 0.0) or 0.0)
     loser_td_def = float(loser_profile.get("td_def", 0.0) or 0.0)
+    winner_sub_win_rate = float(winner_profile.get("sub_win_rate", 0.0) or 0.0)
+    winner_decision_win_rate = float(winner_profile.get("decision_win_rate", 0.0) or 0.0)
+    winner_finish_round1_rate = float(winner_profile.get("finish_wins_round1_rate", 0.0) or 0.0)
+    winner_late_finish_rate = float(winner_profile.get("late_finish_wins_rate", 0.0) or 0.0)
+    winner_cardio_risk = float(winner_profile.get("cardio_risk", 0.0) or 0.0)
+    loser_cardio_risk = float(loser_profile.get("cardio_risk", 0.0) or 0.0)
+    winner_top_control_per_td = float(winner_profile.get("top_control_minutes_per_td", 0.0) or 0.0)
+    winner_ground_ratio = float(winner_profile.get("ground_time_ratio", 0.0) or 0.0)
+    loser_sub_loss_rate = float(loser_profile.get("sub_loss_rate", 0.0) or 0.0)
+    loser_ko_tko_loss_rate = float(loser_profile.get("ko_tko_loss_rate", 0.0) or 0.0)
+    winner_control_proxy = compute_control_proxy(winner_profile)
+    loser_control_proxy = compute_control_proxy(loser_profile)
+    loser_anti_wrestling = compute_anti_wrestling_score(loser_profile)
+
+    dominant_regime = str(method_context.get("dominant_regime", "contested") or "contested")
+    dominant_path_name = str(method_context.get("dominant_path_name", "contested") or "contested")
+    weight_class_name = str(method_context.get("weight_class", "") or "")
+    winner_main_logit = max(0.0, float(method_context.get("winner_main_logit", 0.0) or 0.0))
+    winner_interaction_logit = max(0.0, float(method_context.get("winner_interaction_logit", 0.0) or 0.0))
+    winner_round_win_logit = float(method_context.get("winner_round_win_logit", 0.0) or 0.0)
+    entry_prob_winner = float(method_context.get("entry_prob_winner", 0.55) or 0.55)
+    entry_prob_loser = float(method_context.get("entry_prob_loser", 0.55) or 0.55)
+
+    winner_power_score = compute_power_score(winner_profile)
+    winner_finisher_score = compute_finisher_score(winner_profile)
+    winner_round_score = compute_round_winning_score(winner_profile)
+
+    confidence_signal = min(1.0, max(0.0, (confidence - 0.50) / 0.35))
+    loser_strike_fragility = max(0.0, (58.0 - loser_str_def) / 58.0)
+    loser_wrestle_fragility = max(0.0, (60.0 - loser_td_def) / 60.0)
+    loser_finish_fragility = min(
+        1.0,
+        (loser_ko_tko_loss_rate * 0.55) + (loser_sub_loss_rate * 0.45) + (loser_cardio_risk * 0.20),
+    )
+
+    finish_pressure = (
+        0.18
+        + confidence_signal * 0.42
+        + min(0.35, winner_main_logit * 0.28)
+        + min(0.25, winner_interaction_logit * 0.45)
+        + (winner_finisher_score * 0.20)
+    )
 
     striking_edge = (
         (winner_slpm - loser_slpm) * 0.9
         + (loser_sapm - winner_sapm) * 0.35
         + ((winner_str_def - loser_str_def) / 100.0) * 0.5
     )
-    ko_signal = 0.35 + max(0.0, striking_edge) + max(0.0, (100.0 - loser_str_def) / 100.0 - 0.4)
-
-    grappling_edge = (
-        (winner_sub_avg - loser_sub_avg) * 1.05
-        + (winner_td_avg - loser_td_avg) * 0.5
-        + ((winner_td_def - loser_td_def) / 100.0) * 0.25
+    ko_signal = (
+        -0.08
+        + max(0.0, striking_edge) * 0.85
+        + loser_strike_fragility * 0.70
+        + winner_power_score * 0.55
+        + winner_finisher_score * 0.45
+        + (loser_ko_tko_loss_rate * 0.40)
+        + (winner_finish_round1_rate * 0.22)
+        + (confidence_signal * 0.20)
     )
-    sub_signal = 0.32 + max(0.0, grappling_edge) + max(0.0, (100.0 - loser_td_def) / 100.0 - 0.45)
+
+    control_pressure = (
+        max(0.0, winner_td_avg - loser_td_avg) * 0.9
+        + max(0.0, winner_control_proxy - loser_control_proxy) * 0.8
+        + max(0.0, (100.0 - loser_td_def) / 100.0 - 0.35) * 0.7
+        + max(0.0, winner_top_control_per_td - 0.7) * 0.35
+        + max(0.0, winner_ground_ratio - 0.22) * 0.25
+    )
+
+    submission_hunter_signal = (
+        max(0.0, winner_sub_avg - 0.45) * 1.0
+        + winner_sub_win_rate * 0.95
+        + loser_sub_loss_rate * 0.75
+        + max(0.0, 0.55 - loser_anti_wrestling) * 0.9
+    )
+    sub_entry_support = max(0.0, winner_td_avg - 0.8) * 0.25
+    grappling_finish_signal = submission_hunter_signal + sub_entry_support
+    sub_activation = 0.0
+    if winner_sub_avg >= 0.70:
+        sub_activation += 0.35
+    if winner_sub_win_rate >= 0.25:
+        sub_activation += 0.30
+    if loser_sub_loss_rate >= 0.20:
+        sub_activation += 0.20
+    if loser_anti_wrestling <= 0.45:
+        sub_activation += 0.20
+    sub_activation = min(1.0, sub_activation)
+    sub_signal = (
+        -0.12
+        + max(0.0, (grappling_finish_signal * sub_activation) - (control_pressure * 0.30))
+        + loser_wrestle_fragility * 0.35
+        + loser_sub_loss_rate * 0.40
+        + max(0.0, entry_prob_winner - 0.45) * 0.85
+        + winner_finisher_score * 0.12
+    )
 
     closeness = max(0.0, 0.62 - abs(confidence - 0.5))
-    dec_signal = 0.55 + (closeness * 2.0)
-    dec_signal += max(0.0, 0.25 - max(striking_edge, grappling_edge))
+    dec_signal = 0.10 + (closeness * 0.85)
+    dec_signal += (control_pressure * 0.38) + (winner_decision_win_rate * 0.40)
+    dec_signal += max(0.0, winner_top_control_per_td - 0.75) * 0.15
+    dec_signal += max(0.0, winner_late_finish_rate - 0.25) * 0.08
+    dec_signal += winner_round_score * 0.22
+    dec_signal += max(0.0, winner_round_win_logit) * 0.12
+    dec_signal += max(0.0, entry_prob_loser - 0.55) * 0.20
+    dec_signal -= winner_cardio_risk * 0.18
+    dec_signal -= finish_pressure * 0.65
+    dec_signal -= loser_finish_fragility * 0.20
+
+    if dominant_regime == "submission_threat":
+        sub_signal += 0.55
+        dec_signal -= 0.28
+        ko_signal -= 0.06
+    elif dominant_regime == "wrestling_control":
+        sub_signal += 0.22
+        dec_signal += 0.12
+        ko_signal -= 0.08
+    elif dominant_regime == "striking_exchange":
+        ko_signal += 0.45
+        dec_signal -= 0.20
+        sub_signal -= 0.08
+    elif dominant_regime == "clean_dominance":
+        if dominant_path_name == "submission":
+            sub_signal += 0.40
+            dec_signal -= 0.20
+        elif dominant_path_name == "striking":
+            ko_signal += 0.35
+            dec_signal -= 0.18
+        elif dominant_path_name == "wrestling":
+            sub_signal += 0.12
+            dec_signal += 0.10
+
+    if "Heavyweight" in weight_class_name or "Light Heavyweight" in weight_class_name:
+        ko_signal += 0.18
+        dec_signal -= 0.16
 
     logits = {
         "KO/TKO": max(0.01, ko_signal),
@@ -1445,7 +2049,33 @@ def method_probabilities(winner_profile: Dict[str, Any], loser_profile: Dict[str
     if total <= 0:
         return {"KO/TKO": 0.33, "Submission": 0.33, "Decision": 0.34}
 
-    return {key: value / total for key, value in exp_values.items()}
+    probs = {key: value / total for key, value in exp_values.items()}
+
+    finish_floor = 0.30 + (confidence_signal * 0.16)
+    if dominant_regime in {"submission_threat", "striking_exchange"}:
+        finish_floor += 0.08
+    elif dominant_regime == "clean_dominance":
+        finish_floor += 0.06
+    if "Heavyweight" in weight_class_name or "Light Heavyweight" in weight_class_name:
+        finish_floor += 0.06
+    finish_floor = min(0.68, max(0.28, finish_floor))
+
+    decision_cap = 1.0 - finish_floor
+    if probs["Decision"] > decision_cap:
+        excess = probs["Decision"] - decision_cap
+        probs["Decision"] = decision_cap
+        finish_total = probs["KO/TKO"] + probs["Submission"]
+        if finish_total <= 1e-9:
+            probs["KO/TKO"] += excess * 0.60
+            probs["Submission"] += excess * 0.40
+        else:
+            probs["KO/TKO"] += excess * (probs["KO/TKO"] / finish_total)
+            probs["Submission"] += excess * (probs["Submission"] / finish_total)
+
+    norm = probs["KO/TKO"] + probs["Submission"] + probs["Decision"]
+    if norm <= 0:
+        return {"KO/TKO": 0.33, "Submission": 0.33, "Decision": 0.34}
+    return {k: v / norm for k, v in probs.items()}
 
 
 def sigmoid(value: float) -> float:
@@ -1520,21 +2150,38 @@ def main() -> None:
         feature_signatures.append(build_feature_signature(profile_a or {}, profile_b or {}, weight_class_name))
 
         prob_profile_a = None
+        logit_components = 0.0
         uncertainty_factor = 1.0
+        dominant_path_name = "contested"
+        dominant_regime = "contested"
+        dominant_path_logit = 0.0
+        secondary_logit = 0.0
+        interaction_logit = 0.0
+        logit_details: Dict[str, Any] = {}
         if profile_a and profile_b:
             # -----------------------------------------------------------------
             # Logit-space assembly (Phase 2 — pure logit, no p-space blending)
             # -----------------------------------------------------------------
-            # Work directly from raw model logit with bounded influence.
+            # Base logit: ML model prior in true logit space.
+            # Keep it weak so simulation remains primary, but avoid pseudo-logit
+            # compression so scales stay consistent.
             prob_model_a_raw_clamped = max(0.01, min(0.99, prob_model_a_raw))
             base_logit_raw = math.log(prob_model_a_raw_clamped / (1.0 - prob_model_a_raw_clamped))
-            logit_base = math.tanh(base_logit_raw * 0.6) * 1.2
-            logit_base *= 0.55
+            logit_base = base_logit_raw * 0.35  # ML prior = ~35% of signal in true logit space
 
-            # Gated dominant-path logit components + regime multiplier
-            dominant_path_logit, secondary_logit, regime_multiplier, dominant_path_name, dominant_regime = compute_logit_components(
-                profile_a, profile_b, weight_class_name
-            )
+            # Regime-gated conditional path assembly
+            logit_details = compute_logit_components_detailed(profile_a, profile_b, weight_class_name)
+            main_logit      = float(logit_details.get("main_logit",      0.0) or 0.0)
+            support_logit   = float(logit_details.get("support_logit",   0.0) or 0.0)
+            regime_strength = float(logit_details.get("regime_strength", 1.0) or 1.0)
+            regime_weakness = float(logit_details.get("regime_weakness", 1.0) or 1.0)
+            interaction_logit = float(logit_details.get("interaction_logit", 0.0) or 0.0)
+            dominant_path_name = str(logit_details.get("dominant_path_name", "contested") or "contested")
+            dominant_regime    = str(logit_details.get("regime", "contested") or "contested")
+            # Legacy compat aliases kept for calibration block
+            dominant_path_logit = main_logit
+            secondary_logit     = support_logit
+            regime_multiplier   = regime_strength
 
             # Age adjustment in logit space
             age_adjust_logit = 0.0
@@ -1548,20 +2195,30 @@ def main() -> None:
                 elif age_b >= 37 and age_a <= 33 and (-age_gap) >= 5:
                     age_adjust_logit = 0.35 if heavier else 0.55
 
-            # Uncertainty dampens the full logit magnitude
+            # Uncertainty is retained for diagnostics/calibration only.
             uncertainty_factor = compute_uncertainty_factor(profile_a, profile_b, weight_class_name)
 
-            # Final assembly:
-            #   base_logit   = ML model direction (bounded)
-            #   regime_mult * dominant_path = fight identity drives magnitude
-            #   secondary    = noise floor from non-dominant paths
-            #   age_adjust   = experience/age penalty
-            logit_components = regime_multiplier * dominant_path_logit + secondary_logit + age_adjust_logit
-            logit_p = (logit_base + logit_components) * uncertainty_factor
+            # Final assembly (simulation-first with ML prior anchor):
+            #   logit_components    = primary fight simulation signal
+            #   logit_base          = ML prior (~25%) in true logit space
+            #   uncertainty_factor  = reliability applied to prior only
+            #   main * strength     = dominant fight dimension   (amplified 1.35-1.8x)
+            #   support * weakness  = secondary paths            (compressed)
+            #   interaction         = entry-gated grappling pressure differential
+            #   age_adjust          = career-stage penalty
+            logit_components = (main_logit * regime_strength
+                                 + support_logit * regime_weakness
+                                 + interaction_logit
+                                 + age_adjust_logit)
 
+            # Regime strength is already embedded in main/support assembly.
+            # Apply uncertainty only to the prior to avoid draw-magnet compression.
+            logit_p = logit_components + (logit_base * uncertainty_factor)
+
+            # Probability mapping: apply logit directly to sigmoid.
             prob_a = sigmoid(logit_p)
             prob_profile_a = sigmoid(logit_components)  # for explanation layer only
-            matchup_correction = logit_p - logit_base   # for calibration logging
+            matchup_correction = logit_components   # simulation contribution (for calibration logging)
         else:
             prob_a = prob_model_a
             matchup_correction = 0.0
@@ -1572,7 +2229,20 @@ def main() -> None:
         winner = fighter_a if prob_a >= prob_b else fighter_b
         winner_profile = profile_a if winner == fighter_a else profile_b
         loser_profile = profile_b if winner == fighter_a else profile_a
-        method_probs = method_probabilities(winner_profile or {}, loser_profile or {}, prob_a)
+        winner_is_a = winner == fighter_a
+        winner_confidence = max(prob_a, prob_b)
+        method_context = {
+            "dominant_regime": dominant_regime,
+            "dominant_path_name": dominant_path_name,
+            "weight_class": weight_class_name,
+            "winner_main_logit": dominant_path_logit if winner_is_a else -dominant_path_logit,
+            "winner_interaction_logit": interaction_logit if winner_is_a else -interaction_logit,
+            "winner_round_win_logit": float(logit_details.get("round_win_logit", 0.0) or 0.0) if winner_is_a else -float(logit_details.get("round_win_logit", 0.0) or 0.0),
+            "winner_logit_components": logit_components if winner_is_a else -logit_components,
+            "entry_prob_winner": float(logit_details.get("entry_prob_a", 0.55) or 0.55) if winner_is_a else float(logit_details.get("entry_prob_b", 0.55) or 0.55),
+            "entry_prob_loser": float(logit_details.get("entry_prob_b", 0.55) or 0.55) if winner_is_a else float(logit_details.get("entry_prob_a", 0.55) or 0.55),
+        }
+        method_probs = method_probabilities(winner_profile or {}, loser_profile or {}, winner_confidence, method_context)
         predicted_method = max(method_probs, key=method_probs.get)
         method_values.append(predicted_method)
 
@@ -1603,8 +2273,35 @@ def main() -> None:
                 "calibrated_model_prob_fighterA": round(prob_model_a, 6),
                 "matchup_correction": round(matchup_correction, 6),
                 "uncertainty_factor": round(uncertainty_factor, 6),
+                "dominant_path": dominant_path_name,
+                "dominant_regime": dominant_regime,
+                "dominant_path_logit": round(dominant_path_logit, 6),
+                "secondary_logit": round(secondary_logit, 6),
+                "interaction_logit": round(interaction_logit, 6),
+                "striking_logit": round(float(logit_details.get("striking_logit", 0.0) or 0.0), 6),
+                "grappling_logit": round(float(logit_details.get("grappling_logit", 0.0) or 0.0), 6),
+                "submission_logit": round(float(logit_details.get("submission_logit", 0.0) or 0.0), 6),
+                "effective_pressure_a_to_b": round(float(logit_details.get("effective_pressure_a_to_b", 0.0) or 0.0), 6),
+                "effective_pressure_b_to_a": round(float(logit_details.get("effective_pressure_b_to_a", 0.0) or 0.0), 6),
             },
         }
+
+        # Log prediction for tracking/calibration
+        if TRACKING_ENABLED:
+            try:
+                log_prediction(
+                    fighter_a=fighter_a,
+                    fighter_b=fighter_b,
+                    prob_a=prob_a,
+                    prob_b=prob_b,
+                    regime=dominant_regime,
+                    weight_class=weight_class_name,
+                    dom_logit=round(dominant_path_logit, 4),
+                    interaction_logit=round(interaction_logit, 4),
+                    round_win_logit=round(float(logit_details.get("round_win_logit", 0.0) or 0.0), 4)
+                )
+            except Exception as e:
+                pass  # Silently skip tracking errors to not break prediction generation
 
     total_fights = len(probability_values)
     unique_probs = len(set(probability_values))
